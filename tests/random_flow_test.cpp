@@ -193,9 +193,44 @@ TEST(RandomFlow, ResendsRejectedOrdersFixedAndBreaksTwoRulesAtOnce) {
   EXPECT_GT(two_rules, 100);
 }
 
+TEST(RandomFlow, InAFullySpoiledStreamOnlyResendsAreAccepted) {
+  // With every new order spoiled, the only orders a correct book accepts are resends. So each accepted order must come
+  // straight after the order it resends, under the same id, which was rejected for something other than its id;
+  // about half of those rejections must come back; and resent limit orders become cancel candidates (with none, the
+  // stream would send no cancels at all), so some cancels succeed. The pinned stream hash would also catch a change
+  // here, but re-pinning it is the documented step after a deliberate change, so these properties are checked as such.
+  RandomFlow flow(29, FlowOptions{.target_resting = 100, .invalid_per_mille = 1000});
+  ReferenceBook book;
+  std::vector<Event> events;
+  std::optional<OrderId> resendable;  // the previous command's id, if it was a new order rejected for a non-id reason
+  int rejections = 0, resent = 0, cancelled = 0;
+  for (int i = 0; i < 100'000; ++i) {
+    const Command command = flow.next();
+    events.clear();
+    book.apply(command, events);
+    const std::optional<OrderId> previous = resendable;
+    resendable.reset();
+    if (std::holds_alternative<CancelOrder>(command)) {
+      if (std::holds_alternative<Cancelled>(events.front())) ++cancelled;
+      continue;
+    }
+    const NewOrder& order = std::get<NewOrder>(command);
+    if (std::holds_alternative<Accepted>(events.front())) {
+      ASSERT_TRUE(previous && *previous == order.id) << "command " << i << ", accepted but not a resend: " << format(command);
+      ++resent;
+    } else if (std::get<Rejected>(events.front()).reason != RejectReason::IdNotIncreasing) {
+      resendable = order.id;
+      ++rejections;
+    }
+  }
+  ASSERT_GT(rejections, 10'000);
+  EXPECT_NEAR(100.0 * resent / rejections, 50.0, 2.0) << resent << " of " << rejections;
+  EXPECT_GT(cancelled, 100);
+}
+
 TEST(RandomFlow, OrdersSentValidAreAccepted) {
-  // The stream spoils about 5 in 1,000 new orders, each in exactly one field; every other order must be accepted,
-  // so a rejection count far above that rate means the stream sends invalid orders by accident.
+  // The stream spoils about 5 in 1,000 new orders (one in four of those in two fields); every other order must be
+  // accepted, so a rejection count far above that rate means the stream sends invalid orders by accident.
   RandomFlow flow(9);
   ReferenceBook book;
   std::vector<Event> events;
