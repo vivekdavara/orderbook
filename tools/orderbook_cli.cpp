@@ -9,17 +9,18 @@
 // `orderbook gen 1 20 | orderbook run` prints what the reference model does with a stream; the transcript is
 // itself a scenario file, so `orderbook check` passes it.
 
+#include <algorithm>
 #include <array>
 #include <charconv>
 #include <cstdint>
 #include <cstdio>
 #include <fstream>
 #include <iostream>
-#include <iterator>
 #include <optional>
 #include <sstream>
 #include <string>
 #include <string_view>
+#include <system_error>
 #include <variant>
 #include <vector>
 
@@ -43,10 +44,14 @@ int usage() {
   return kUsageError;
 }
 
+// Through rdbuf() rather than istreambuf_iterator: with the iterator, GCC 14 at -O3 reports a "potential null pointer
+// dereference" inside libstdc++'s streambuf (a false positive that -Werror makes fatal).
 std::optional<std::string> read_all(const std::string& path) {
   std::ifstream in(path, std::ios::binary);
   if (!in) return std::nullopt;
-  return std::string(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+  std::ostringstream text;
+  text << in.rdbuf();
+  return text.str();
 }
 
 template <typename Int>
