@@ -54,6 +54,7 @@ has that diagram and the plan for each day.
 | `include/orderbook/scenario.hpp` | Scenario files: parse and run against any book |
 | `include/orderbook/random_flow.hpp` | The seeded random command stream |
 | `include/orderbook/check.hpp` | `check_book` and `Audit` |
+| `include/orderbook/minimize.hpp` | Shrinks a failing command stream to the commands the failure needs |
 | `tools/orderbook_cli.cpp` | The `orderbook` command-line tool |
 | `tests/`, `bench/` | GoogleTest suite and scenario files; Google Benchmark suite |
 
@@ -103,7 +104,7 @@ configure time as release tarballs pinned by SHA-256.
 make check
 ```
 
-Configures the `dev` preset (Debug, warnings as errors) into `build/dev`, builds everything, and runs the 69 tests.
+Configures the `dev` preset (Debug, warnings as errors) into `build/dev`, builds everything, and runs the 75 tests.
 `make asan` runs them under AddressSanitizer and UndefinedBehaviorSanitizer; `make bench` builds the `release`
 preset (-O3) and runs the benchmarks; `make coverage` reports the tests' line and branch coverage (Clang only).
 
@@ -119,6 +120,27 @@ build/dev/orderbook audit 1 100000 --target 500   # a random run with every inva
 test. The last command printed `commands 100000, accepted 57535, rejected 17903, trades 27680, cancelled 29255;
 resting at the end 303, at most 335` in 0.81 s (Debug build); most of the rejections are cancels of orders that had
 already filled.
+
+## When a random run fails
+
+`minimize` (`include/orderbook/minimize.hpp`, ddmin) shrinks a failing stream to commands that still fail, each of
+which is needed. In `minimize_test.cpp` a deliberately broken book reports a tick too high for any trade with a maker
+that has traded before; the Audit catches it in a 3,000-command random run, and 43 replays later this is what is left
+(printed by a throwaway program with the test's broken book; the ids are the random stream's):
+
+```
+> new 1757 sell limit 84 @ 9956
+accepted 1757
+> new 1760 buy market 40
+accepted 1760
+trade 1760 1757 40 @ 9956
+> new 1769 buy limit 6 @ 9964
+accepted 1769
+trade 1769 1757 6 @ 9957
+audit: command 3 'new 1769 buy limit 6 @ 9964': 'trade 1769 1757 6 @ 9957': the maker's price is 9956
+```
+
+Day 2's differential tests will report a disagreement between the engine and the reference model the same way.
 
 ## Results (day 1)
 
@@ -142,7 +164,7 @@ core's.
 
 ## Tests
 
-69 tests (`make check`), each a separate CTest test, green on all four CI jobs.
+75 tests (`make check`), each a separate CTest test, green on all four CI jobs.
 
 `make coverage` (Clang source-based coverage, at the commit that added it): the GoogleTest suite runs 98.6% of the
 lines in `src/` and `include/` (687 of 697), 96.4% of branches (426 of 442) and 97.2% of regions. The 10 lines it
@@ -157,6 +179,7 @@ assertion fails; three), and three defaulted `==` operators the tests never call
 | `scenario_test.cpp` + `scenarios/*.txt` | Eleven hand-written scripts, one or more per rule; the parser's and runner's error reports, with line numbers |
 | `random_flow_test.cpp` | Same seed same stream; a pinned hash of seed 1's first 100,000 commands, so Linux and macOS must agree; the documented mix; every event kind and reject reason occurs |
 | `check_test.cpp` | The reference model passes `Audit` and `check_book` over 160,000 random commands: four seeds of the default mix, and mixes with long queues at three prices, quantities up to 10^9 on a near-empty book, and 30% invalid orders; each check is shown to fail on events or a state that break its rule |
+| `minimize_test.cpp` | The minimizer keeps exactly what a failure needs, in order, and is 1-minimal; random runs that catch two deliberately broken books shrink to 3 commands and to 1 |
 | CLI tests (`tests/CMakeLists.txt`) | `check` passes the scenarios and reports a wrong one with its line; a 2,000-command transcript passes its own check |
 
 ## Design decisions
