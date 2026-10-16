@@ -11,11 +11,15 @@ function(orderbook_set_warnings target)
     -Wcast-align
     -Wnon-virtual-dtor
     -Woverloaded-virtual
-    -Wnull-dereference
     -Wdouble-promotion
     -Wimplicit-fallthrough)
   if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
     list(APPEND warnings -Wduplicated-cond -Wlogical-op -Wuseless-cast)
+  else()
+    # Clang only. GCC's version works from the optimiser's view of the code, so it fires in optimised builds only,
+    # and twice here falsely: GCC 14 inside libstdc++'s streambuf (CI at 6c276be), and GCC 15 in Price's defaulted
+    # comparison inlined into a test (the day-1 review, on this Mac).
+    list(APPEND warnings -Wnull-dereference)
   endif()
   if(ORDERBOOK_WERROR)
     list(APPEND warnings -Werror)

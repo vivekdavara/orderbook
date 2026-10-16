@@ -1,7 +1,7 @@
 # Thin wrappers over the CMake presets (CMakePresets.json). `make check` is what every commit must pass.
 JOBS ?= $(shell sysctl -n hw.ncpu 2>/dev/null || nproc)
 
-.PHONY: check asan bench coverage clean
+.PHONY: check asan bench coverage gcc-check clean
 
 # Debug build with warnings as errors, then every test.
 check:
@@ -36,6 +36,11 @@ coverage:
 	$(LLVM_PROFDATA) merge -sparse build/coverage/profiles/*.profraw -o build/coverage/tests.profdata
 	$(LLVM_COV) report -instr-profile=build/coverage/tests.profdata build/coverage/tests/orderbook_tests \
 	  $(CURDIR)/src $(CURDIR)/include
+
+# This project's own sources compiled with GCC (Homebrew's g++-15 here), Debug and Release, warnings as errors:
+# CI's GCC job catches warnings Clang doesn't give, and this finds them before a push (scripts/gcc_check.sh).
+gcc-check:
+	scripts/gcc_check.sh
 
 clean:
 	rm -rf build
