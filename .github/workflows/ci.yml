@@ -79,10 +79,18 @@ jobs:
           cmake --build --preset fuzz -j 4
       - name: Fuzz the text format for 60 s, starting from the scenario files
         run: |
-          mkdir -p corpus/text
+          mkdir -p corpus/text fuzz-artifacts
           cp tests/scenarios/*.txt corpus/text/
-          ./build/fuzz/fuzz/text_fuzz -max_total_time=60 -timeout=10 corpus/text
+          ./build/fuzz/fuzz/text_fuzz -max_total_time=60 -timeout=10 -artifact_prefix=fuzz-artifacts/text- corpus/text
       - name: Fuzz the book for 60 s
         run: |
-          mkdir -p corpus/book
-          ./build/fuzz/fuzz/book_fuzz -max_total_time=60 -timeout=10 -max_len=3000 corpus/book
+          mkdir -p corpus/book fuzz-artifacts
+          ./build/fuzz/fuzz/book_fuzz -max_total_time=60 -timeout=10 -max_len=3000 \
+            -artifact_prefix=fuzz-artifacts/book- corpus/book
+      - name: Keep the inputs that crashed or timed out, to replay them
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: fuzz-findings
+          path: fuzz-artifacts/
+          if-no-files-found: ignore

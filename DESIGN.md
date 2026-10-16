@@ -230,7 +230,9 @@ replay and L2 snapshots.
 - **Differential tests** (day 2): random command streams into the reference and the engine, comparing every event.
   A disagreement is shrunk by `minimize` (ddmin) to the few commands that still show it.
 - **Fuzzing.** CI runs two libFuzzer targets for 60 s each under the sanitizers: the text format (seeded with the
-  scenario files) and the book under the Audit. Elsewhere CTest runs them on fixed inputs.
+  scenario files) and the book under the Audit. Elsewhere CTest runs them on fixed inputs. An input that crashes in
+  CI is kept as the run's `fuzz-findings` artifact and replays with the standalone build
+  (`build/dev/fuzz/book_fuzz <file>`).
 - **Sanitizers.** CI runs every test under AddressSanitizer and UndefinedBehaviorSanitizer.
 - **Coverage.** `make coverage` reports the tests' line and branch coverage of `src/` and `include/`.
 - **GCC before pushing.** `make gcc-check` compiles the project's files with Homebrew's GCC, since CI's GCC job flags
