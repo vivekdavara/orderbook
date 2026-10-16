@@ -4,6 +4,7 @@
 
 #include <array>
 #include <cstdint>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <variant>
@@ -45,7 +46,7 @@ TEST(RandomFlow, TheStreamIsTheSameOnEveryPlatform) {
   // generator is changed on purpose, this number changes with it, and the seeds in failing-test reports that
   // predate the change no longer reproduce.
   RandomFlow flow(1);
-  EXPECT_EQ(hash_stream(flow, 100'000), 0x2c53c79c96b493e7ULL);
+  EXPECT_EQ(hash_stream(flow, 100'000), 0x351d5dcb870a1dcdULL);
 }
 
 TEST(RandomFlow, EveryCommandHasATextFormThatParsesBack) {
@@ -145,6 +146,41 @@ TEST(RandomFlow, NearTheLowestPriceEveryOrderSentValidIsAccepted) {
 
 TEST(RandomFlow, NearTheHighestPriceEveryOrderSentValidIsAccepted) {
   expect_every_order_accepted(FlowOptions{.start_price = 1'000'000'000, .target_resting = 50}, 20'000);
+}
+
+TEST(RandomFlow, ResendsRejectedOrdersFixedAndBreaksTwoRulesAtOnce) {
+  // Through the reference model, with many spoiled orders: an order rejected for anything but its id that comes
+  // straight back under the same id must now be accepted, since a rejection doesn't use the id up; and some
+  // rejected orders break two rules, so the order of the checks decides their reason.
+  RandomFlow flow(23, FlowOptions{.target_resting = 100, .invalid_per_mille = 100});
+  ReferenceBook book;
+  std::vector<Event> events;
+  std::optional<OrderId> rejected_id;
+  OrderId last_accepted{0};
+  int resent = 0, two_rules = 0;
+  for (int i = 0; i < 50'000; ++i) {
+    const Command command = flow.next();
+    events.clear();
+    book.apply(command, events);
+    const auto* order = std::get_if<NewOrder>(&command);
+    if (order == nullptr) continue;
+    if (rejected_id && order->id == *rejected_id) {
+      ASSERT_TRUE(std::holds_alternative<Accepted>(events.front())) << format(command) << ": " << format(events.front());
+      ++resent;
+    }
+    rejected_id.reset();
+    if (const auto* rejected = std::get_if<Rejected>(&events.front())) {
+      const bool bad_id = order->id <= last_accepted;
+      const bool bad_quantity = !valid_quantity(order->quantity);
+      const bool bad_price = order->type == OrderType::Market ? order->price != Price{0} : !valid_price(order->price);
+      if (int{bad_id} + int{bad_quantity} + int{bad_price} >= 2) ++two_rules;
+      if (rejected->reason != RejectReason::IdNotIncreasing) rejected_id = order->id;
+    } else {
+      last_accepted = order->id;
+    }
+  }
+  EXPECT_GT(resent, 100);
+  EXPECT_GT(two_rules, 100);
 }
 
 TEST(RandomFlow, OrdersSentValidAreAccepted) {

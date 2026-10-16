@@ -58,6 +58,17 @@ void RandomFlow::step_mid() {
 }
 
 Command RandomFlow::next() {
+  // Half the time, an order just rejected for a field other than its id is sent again at once, fixed, under the same
+  // id: a rejection mustn't use the id up (DESIGN.md, "A rejected command changes nothing").
+  if (resend_) {
+    const NewOrder fixed = *resend_;
+    resend_.reset();
+    if (below(2) == 0) {
+      last_valid_id_ = fixed.id.value;
+      if (fixed.type == OrderType::Limit) candidates_.push_back(fixed.id);
+      return fixed;
+    }
+  }
   step_mid();
   // Below the target, limit orders outnumber cancels (60 to 25 in 100); above it, cancels win (50 to 35). Either
   // way 10 in 100 are IOC and 5 market orders.
@@ -87,7 +98,12 @@ NewOrder RandomFlow::new_order(OrderType type) {
 
   NewOrder order{OrderId{next_id_++}, side, type, Quantity{quantity}, Price{price}};
   if (below(1000) < static_cast<std::uint64_t>(options_.invalid_per_mille)) {
-    spoil(order);
+    const NewOrder valid = order;
+    // One in four spoiled orders breaks two rules, so the order of the checks decides the reason.
+    const std::uint64_t first = below(6);
+    spoil(order, first);
+    if (below(4) == 0) spoil(order, (first + 1 + below(5)) % 6);
+    if (order.id == valid.id) resend_ = valid;
   } else {
     last_valid_id_ = order.id.value;
     if (type == OrderType::Limit) candidates_.push_back(order.id);
@@ -95,10 +111,10 @@ NewOrder RandomFlow::new_order(OrderType type) {
   return order;
 }
 
-// Breaks exactly one rule, so the order is rejected for that reason.
-void RandomFlow::spoil(NewOrder& order) {
+// Breaks one rule: 0 the id, 1 to 3 the quantity, 4 and 5 the price.
+void RandomFlow::spoil(NewOrder& order, std::uint64_t how) {
   const bool market = order.type == OrderType::Market;
-  switch (below(6)) {
+  switch (how) {
     case 0:
       order.id = OrderId{last_valid_id_};  // already accepted, or 0 before anything was
       break;

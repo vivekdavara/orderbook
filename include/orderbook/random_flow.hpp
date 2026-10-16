@@ -9,6 +9,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <vector>
 
 #include "orderbook/command.hpp"
@@ -24,7 +25,7 @@ struct FlowOptions {
   std::int64_t price_range = 50;      // limit and IOC prices fall within this many ticks of the mid
   std::int64_t max_quantity = 100;    // quantities are uniform in 1..max_quantity
   std::size_t target_resting = 500;   // past this many limit orders that may still rest, cancels outnumber them
-  int invalid_per_mille = 5;          // new orders given one invalid field, to exercise every rejection
+  int invalid_per_mille = 5;          // new orders given an invalid field (one in four of them two)
 };
 
 class RandomFlow {
@@ -33,7 +34,8 @@ class RandomFlow {
 
   // The next command. Of new orders: limit orders mostly rest near the mid, some cross it; IOC orders mostly cross
   // it; market orders cross at any price. Cancels pick a limit order this stream sent and hasn't cancelled yet,
-  // which may have filled since (and is then rejected).
+  // which may have filled since (and is then rejected). A spoiled order breaks one rule, or one in four two, and
+  // one rejected for anything but its id is half the time sent again next, fixed, under the same id.
   Command next();
 
   // Limit orders sent, valid and not yet cancelled by this stream: an upper bound on what rests from it.
@@ -45,7 +47,7 @@ class RandomFlow {
   std::int64_t between(std::int64_t lo, std::int64_t hi);  // uniform in [lo, hi]
 
   NewOrder new_order(OrderType type);
-  void spoil(NewOrder& order);
+  void spoil(NewOrder& order, std::uint64_t how);
   CancelOrder cancel();
   void step_mid();
   std::int64_t lowest_mid() const;
@@ -57,6 +59,7 @@ class RandomFlow {
   std::uint64_t next_id_ = 1;
   std::uint64_t last_valid_id_ = 0;  // the newest id of an order sent valid, which the book has therefore accepted
   std::vector<OrderId> candidates_;
+  std::optional<NewOrder> resend_;  // the valid form of the order just spoiled, if its id wasn't the broken rule
 };
 
 }  // namespace orderbook
