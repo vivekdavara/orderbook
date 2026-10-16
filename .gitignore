@@ -1,0 +1,14 @@
+# Build output (CMake presets build into build/<preset>)
+/build/
+/cmake-build-*/
+compile_commands.json
+
+# Local environment
+.env
+.env.*
+
+# Editors and OS
+.idea/
+.vscode/
+.cache/
+.DS_Store
