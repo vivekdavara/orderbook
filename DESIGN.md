@@ -144,7 +144,8 @@ cancelled <id> <remaining> <requested|unfilled>
 
 Every command the C++ types can hold has a text form that parses back to the same command, invalid ones included:
 quantities and prices may be zero or negative (`new 4 buy limit 0 @ 100` is a valid line and an invalid order),
-and a market order may carry `@ <price>`, which validation then rejects. Lines are lower case, single-spaced words.
+and a market order may carry `@ <price>`, which validation then rejects. Words are lower case and separated by
+spaces or tabs; the formatter writes single spaces.
 
 A **scenario file** is a script with its expected results:
 

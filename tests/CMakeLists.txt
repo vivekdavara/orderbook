@@ -1,6 +1,7 @@
 include(GoogleTest)
 
 add_executable(orderbook_tests
+  text_test.cpp
   types_test.cpp)
 target_link_libraries(orderbook_tests PRIVATE orderbook::orderbook GTest::gtest_main)
 orderbook_set_warnings(orderbook_tests)

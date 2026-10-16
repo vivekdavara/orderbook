@@ -18,6 +18,7 @@ include(cmake/Warnings.cmake)
 include(cmake/Sanitizers.cmake)
 
 add_library(orderbook
+  src/text.cpp
   src/types.cpp)
 add_library(orderbook::orderbook ALIAS orderbook)
 target_include_directories(orderbook PUBLIC ${PROJECT_SOURCE_DIR}/include)
