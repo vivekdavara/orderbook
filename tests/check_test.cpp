@@ -126,6 +126,28 @@ TEST(Audit, CatchesEachBrokenRule) {
   }
 }
 
+TEST(Audit, CatchesATradePastTheTakersLimit) {
+  // The best ask, 102, is above the buy's limit of 101: the right answer is "accepted 2" and nothing else.
+  Audit audit = audit_after({"new 1 sell limit 5 @ 102"});
+  audit.record(command("new 2 buy limit 5 @ 101"), {Accepted{OrderId{2}}, Trade{OrderId{2}, OrderId{1}, Quantity{5}, Price{102}}});
+  ASSERT_FALSE(audit.ok());
+  EXPECT_NE(audit.problems().front().find("past the taker's limit"), std::string::npos) << audit.problems().front();
+
+  Audit sells = audit_after({"new 1 buy limit 5 @ 99"});
+  sells.record(command("new 2 sell ioc 5 @ 100"), {Accepted{OrderId{2}}, Trade{OrderId{2}, OrderId{1}, Quantity{5}, Price{99}}});
+  ASSERT_FALSE(sells.ok());
+  EXPECT_NE(sells.problems().front().find("past the taker's limit"), std::string::npos) << sells.problems().front();
+}
+
+TEST(Audit, ChecksTheQuantityBeforeThePrice) {
+  // A valid id, no quantity and no price: the reason must be the quantity.
+  Audit audit = audit_after({});
+  audit.record(command("new 1 buy limit 0 @ 0"), {Rejected{OrderId{1}, RejectReason::InvalidPrice}});
+  ASSERT_FALSE(audit.ok());
+  EXPECT_NE(audit.problems().front().find("expected 'rejected 1 invalid-quantity'"), std::string::npos)
+      << audit.problems().front();
+}
+
 TEST(Audit, CatchesAnIocThatIsNotCancelledOrAMarketOrderThatRests) {
   Audit audit = audit_after({"new 1 sell limit 5 @ 101"});
   audit.record(command("new 2 buy ioc 8 @ 101"), {Accepted{OrderId{2}}, Trade{OrderId{2}, OrderId{1}, Quantity{5}, Price{101}}});
@@ -161,6 +183,7 @@ TEST(Audit, CatchesWrongRejectionsAndCancels) {
 struct FakeBook {
   std::vector<RestingOrder> bids, asks;
   std::optional<std::vector<Level>> bid_depth;  // when set, overrides the depth computed from the orders
+  std::optional<Price> best_bid = std::nullopt;  // when set, overrides the best bid taken from the depth
 
   std::vector<RestingOrder> orders(Side side) const { return side == Side::Buy ? bids : asks; }
   std::vector<Level> depth(Side side) const {
@@ -173,6 +196,7 @@ struct FakeBook {
     return levels;
   }
   std::optional<Price> best_price(Side side) const {
+    if (side == Side::Buy && best_bid) return best_bid;
     const auto levels = depth(side);
     return levels.empty() ? std::nullopt : std::optional<Price>(levels.front().price);
   }
@@ -205,6 +229,7 @@ TEST(CheckBook, CatchesEachKindOfBadState) {
       {{{bid(1, 100, 5)}, {ask(1, 101, 5)}, std::nullopt}, "asks order 1 rests twice"},
       {{{ask(1, 100, 5)}, {}, std::nullopt}, "bids order 1 is on the wrong side"},
       {{{bid(1, 100, 5)}, {}, std::vector<Level>{{Price{100}, Quantity{6}}}}, "bids depth is '100x6'"},
+      {{{bid(1, 100, 5), bid(2, 99, 5)}, {}, std::nullopt, Price{99}}, "bids best price isn't the first level's"},
   };
   for (const Case& c : cases) {
     const std::string problems = joined(check_book(c.book));

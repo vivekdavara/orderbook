@@ -25,6 +25,11 @@ rejected 1 id-not-increasing
 accepted 2
 = bids 1x1000000000
 = asks 1000000000x1
+# An order that breaks all three rules is rejected for its id, and one with a valid id for its quantity.
+> new 2 buy market 0 @ 5
+rejected 2 id-not-increasing
+> new 3 buy market 0 @ 5
+rejected 3 invalid-quantity
 
 # Ids must increase, but may skip.
 > new 10 sell limit 1 @ 500
