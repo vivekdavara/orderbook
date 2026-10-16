@@ -104,6 +104,7 @@ int run(std::istream& in) {
   std::vector<Event> events;
   std::string line;
   int number = 0;
+  int commands = 0;
   while (std::getline(in, line)) {
     ++number;
     std::string_view text = line;
@@ -119,10 +120,13 @@ int run(std::istream& in) {
     }
     events.clear();
     book.apply(*command, events);
+    ++commands;
     std::cout << "> " << format(*command) << "\n";
     for (const Event& event : events) std::cout << format(event) << "\n";
   }
-  print_depth(book);
+  // A scenario file's depth checks belong to a command, so with no commands there is nothing to print: an empty
+  // transcript is an empty scenario file, which check passes.
+  if (commands > 0) print_depth(book);
   return 0;
 }
 
@@ -173,24 +177,30 @@ int audit(const FlowArgs& args) {
   std::vector<Event> events;
   std::array<std::uint64_t, 4> kinds{};  // accepted or rejected, trades, cancelled; indexed by the variant
   std::uint64_t largest = 0;
-  for (std::uint64_t i = 1; i <= args.count; ++i) {
+  std::uint64_t ran = 0;
+  bool sound = true;  // no check_book problem at any checkpoint, not only the last
+  while (ran < args.count) {
     const Command command = flow.next();
     events.clear();
     book.apply(command, events);
     checker.record(command, events);
+    ++ran;
     for (const Event& event : events) ++kinds[event.index()];
-    if (i % 1000 == 0 || i == args.count) {
-      for (const std::string& problem : check_book(book)) std::cerr << "command " << i << ": " << problem << "\n";
+    if (ran % 1000 == 0 || ran == args.count) {
+      for (const std::string& problem : check_book(book)) {
+        std::cerr << "command " << ran << ": " << problem << "\n";
+        sound = false;
+      }
       checker.compare(book);
     }
     largest = std::max<std::uint64_t>(largest, book.size());
-    if (!checker.ok()) break;
+    if (!checker.ok() || !sound) break;
   }
   for (const std::string& problem : checker.problems()) std::cerr << problem << "\n";
-  std::cout << "commands " << args.count << ", accepted " << kinds[0] << ", rejected " << kinds[1] << ", trades "
+  std::cout << "commands " << ran << ", accepted " << kinds[0] << ", rejected " << kinds[1] << ", trades "
             << kinds[2] << ", cancelled " << kinds[3] << "; resting at the end " << book.size() << ", at most "
             << largest << "\n";
-  return checker.ok() && check_book(book).empty() ? 0 : 1;
+  return checker.ok() && sound ? 0 : 1;
 }
 
 }  // namespace

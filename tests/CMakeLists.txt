@@ -35,3 +35,6 @@ set_tests_properties(cli.options_out_of_range_are_reported PROPERTIES
   PASS_REGULAR_EXPRESSION "orderbook: price_range must be 0 to 499999999, got 600000000")
 add_test(NAME cli.usage_is_printed_for_bad_arguments COMMAND orderbook_cli gen 1)
 set_tests_properties(cli.usage_is_printed_for_bad_arguments PROPERTIES PASS_REGULAR_EXPRESSION "usage: orderbook check")
+
+# The second day-1 review's reproductions of CLI bugs.
+include(${CMAKE_CURRENT_SOURCE_DIR}/review2/cli_tests.cmake)
