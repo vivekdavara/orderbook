@@ -39,7 +39,10 @@ void run_checked(const RunOptions& run) {
     book.apply(command, events);
     audit.record(command, events);
     ASSERT_TRUE(audit.ok()) << "seed " << run.seed << "\n" << joined(audit.problems());
-    if (i % 25 == 0) ASSERT_EQ(joined(check_book(book)), "") << "seed " << run.seed << ", command " << i;
+    // Braced: GoogleTest's assertions expand to an if-else, which GCC's -Wdangling-else flags under a bare if.
+    if (i % 25 == 0) {
+      ASSERT_EQ(joined(check_book(book)), "") << "seed " << run.seed << ", command " << i;
+    }
     if (i % 250 == 0) audit.compare(book);
   }
   audit.compare(book);
