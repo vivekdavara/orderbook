@@ -17,10 +17,11 @@ namespace {
 
 namespace fs = std::filesystem;
 
-std::vector<fs::path> scenario_files() {
-  std::vector<fs::path> files;
+// The scenario files' names, sorted.
+std::vector<std::string> scenario_files() {
+  std::vector<std::string> files;
   for (const fs::directory_entry& entry : fs::directory_iterator(ORDERBOOK_SCENARIO_DIR)) {
-    if (entry.path().extension() == ".txt") files.push_back(entry.path());
+    if (entry.path().extension() == ".txt") files.push_back(entry.path().filename().string());
   }
   std::sort(files.begin(), files.end());
   return files;
@@ -33,25 +34,26 @@ std::string read_file(const fs::path& path) {
   return text.str();
 }
 
-class ScenarioFile : public ::testing::TestWithParam<fs::path> {};
+class ScenarioFile : public ::testing::TestWithParam<std::string> {};
 
 TEST_P(ScenarioFile, PassesOnTheReferenceModel) {
   std::string error;
-  const auto scenario = parse_scenario(read_file(GetParam()), &error);
-  ASSERT_TRUE(scenario.has_value()) << GetParam().filename() << " " << error;
-  ASSERT_FALSE(scenario->empty()) << GetParam().filename() << " has no commands";
+  const auto scenario = parse_scenario(read_file(fs::path(ORDERBOOK_SCENARIO_DIR) / GetParam()), &error);
+  ASSERT_TRUE(scenario.has_value()) << GetParam() << " " << error;
+  ASSERT_FALSE(scenario->empty()) << GetParam() << " has no commands";
   ReferenceBook book;
-  EXPECT_EQ(run_scenario(*scenario, book), "") << GetParam().filename();
+  EXPECT_EQ(run_scenario(*scenario, book), "") << GetParam();
 }
 
-INSTANTIATE_TEST_SUITE_P(Files, ScenarioFile, ::testing::ValuesIn(scenario_files()),
-                         [](const ::testing::TestParamInfo<fs::path>& info) {
-                           std::string name = info.param.stem().string();
-                           std::replace_if(
-                               name.begin(), name.end(), [](char c) { return !std::isalnum(static_cast<unsigned char>(c)); },
-                               '_');
-                           return name;
-                         });
+// "03_time_priority.txt" runs as Files/ScenarioFile.PassesOnTheReferenceModel/03_time_priority.
+std::string test_name(const ::testing::TestParamInfo<std::string>& param) {
+  std::string name = fs::path(param.param).stem().string();
+  std::replace_if(name.begin(), name.end(), [](char c) { return std::isalnum(static_cast<unsigned char>(c)) == 0; },
+                  '_');
+  return name;
+}
+
+INSTANTIATE_TEST_SUITE_P(Files, ScenarioFile, ::testing::ValuesIn(scenario_files()), test_name);
 
 TEST(Scenario, TheFilesAreThere) {
   // A wrong directory would otherwise instantiate no file tests, and pass.

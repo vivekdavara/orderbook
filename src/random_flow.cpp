@@ -103,7 +103,7 @@ void RandomFlow::spoil(NewOrder& order) {
 }
 
 CancelOrder RandomFlow::cancel() {
-  const auto i = static_cast<std::size_t>(below(candidates_.size()));
+  const std::size_t i = below(candidates_.size());
   const OrderId id = candidates_[i];
   candidates_[i] = candidates_.back();
   candidates_.pop_back();
