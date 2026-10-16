@@ -38,3 +38,17 @@ set_tests_properties(cli.usage_is_printed_for_bad_arguments PROPERTIES PASS_REGU
 
 # The second day-1 review's reproductions of CLI bugs.
 include(${CMAKE_CURRENT_SOURCE_DIR}/review2/cli_tests.cmake)
+
+# Exit codes. A test with PASS_REGULAR_EXPRESSION passes whatever the exit code, so each of those has a twin here that
+# requires the exact one (0 ok, 1 a failed check or bad input, 2 a usage error).
+function(cli_exit_test name code)
+  add_test(NAME ${name} COMMAND sh -c "\"$0\" \"$@\" >/dev/null 2>&1; test $? -eq ${code}"
+           $<TARGET_FILE:orderbook_cli> ${ARGN})
+endfunction()
+cli_exit_test(cli.exit.check_of_a_wrong_scenario_is_1 1 check ${CMAKE_CURRENT_SOURCE_DIR}/cli/wrong.txt)
+cli_exit_test(cli.exit.check_of_a_missing_file_is_1 1 check ${CMAKE_CURRENT_BINARY_DIR}/no_such_file.txt)
+cli_exit_test(cli.exit.run_of_a_bad_command_is_1 1 run ${CMAKE_CURRENT_SOURCE_DIR}/cli/bad_command.txt)
+cli_exit_test(cli.exit.bad_arguments_are_2 2 gen 1)
+cli_exit_test(cli.exit.options_out_of_range_are_2 2 gen 1 10 --range 600000000)
+cli_exit_test(cli.exit.no_arguments_are_2 2)
+cli_exit_test(cli.exit.a_passing_audit_is_0 0 audit 5 2000 --target 50)
