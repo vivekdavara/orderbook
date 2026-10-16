@@ -50,6 +50,18 @@
         "ORDERBOOK_COVERAGE": "ON",
         "ORDERBOOK_BUILD_BENCHMARKS": "OFF"
       }
+    },
+    {
+      "name": "fuzz",
+      "displayName": "libFuzzer targets under ASan and UBSan (Clang with libFuzzer; CI's fuzz job)",
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+        "ORDERBOOK_FUZZ": "ON",
+        "ORDERBOOK_SANITIZE": "address,undefined",
+        "ORDERBOOK_BUILD_TESTS": "OFF",
+        "ORDERBOOK_BUILD_BENCHMARKS": "OFF"
+      }
     }
   ],
   "buildPresets": [
@@ -68,6 +80,10 @@
     {
       "name": "coverage",
       "configurePreset": "coverage"
+    },
+    {
+      "name": "fuzz",
+      "configurePreset": "fuzz"
     }
   ],
   "testPresets": [

@@ -15,12 +15,17 @@ option(ORDERBOOK_BUILD_BENCHMARKS "Build the Google Benchmark suite" ${PROJECT_I
 option(ORDERBOOK_WERROR "Treat compiler warnings as errors" OFF)
 set(ORDERBOOK_SANITIZE "" CACHE STRING "Sanitizers to build with, e.g. address,undefined (empty for none)")
 option(ORDERBOOK_COVERAGE "Build with Clang's source-based coverage (make coverage)" OFF)
+option(ORDERBOOK_FUZZ "Build the fuzz targets for libFuzzer (Clang only)" OFF)
 
 include(cmake/Warnings.cmake)
 include(cmake/Sanitizers.cmake)
 if(ORDERBOOK_COVERAGE)
   add_compile_options(-fprofile-instr-generate -fcoverage-mapping)
   add_link_options(-fprofile-instr-generate)
+endif()
+if(ORDERBOOK_FUZZ)
+  # Coverage instrumentation for libFuzzer in everything; only the fuzz targets link its main().
+  add_compile_options(-fsanitize=fuzzer-no-link)
 endif()
 
 add_library(orderbook
@@ -61,3 +66,5 @@ endif()
 if(ORDERBOOK_BUILD_BENCHMARKS)
   add_subdirectory(bench)
 endif()
+
+add_subdirectory(fuzz)

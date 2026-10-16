@@ -62,3 +62,27 @@ jobs:
         run: sudo apt-get update -q && sudo apt-get install -y -q ninja-build
       - name: Build and test under the sanitizers
         run: make asan JOBS=4
+
+  fuzz:
+    name: Linux, Clang 18, libFuzzer
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      CXX: clang++-18
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install Ninja
+        run: sudo apt-get update -q && sudo apt-get install -y -q ninja-build
+      - name: Build the fuzz targets (ASan and UBSan)
+        run: |
+          cmake --preset fuzz
+          cmake --build --preset fuzz -j 4
+      - name: Fuzz the text format for 60 s, starting from the scenario files
+        run: |
+          mkdir -p corpus/text
+          cp tests/scenarios/*.txt corpus/text/
+          ./build/fuzz/fuzz/text_fuzz -max_total_time=60 -timeout=10 corpus/text
+      - name: Fuzz the book for 60 s
+        run: |
+          mkdir -p corpus/book
+          ./build/fuzz/fuzz/book_fuzz -max_total_time=60 -timeout=10 -max_len=3000 corpus/book
