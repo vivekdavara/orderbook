@@ -145,20 +145,24 @@ Day 2's differential tests will report a disagreement between the engine and the
 ## Results (day 1)
 
 The reference model's throughput, the baseline the engine has to beat, measured with `make bench` (Google Benchmark,
-5 repetitions, medians) at commit `ec245ab` on an Apple M3, macOS 26.6.2, Apple Clang 21 at -O3, on battery (44%) with
-Low Power Mode off and other apps open (load average 1.9). Synthetic commands from `RandomFlow` (seed 42, the default
-mix); each run times 10,000 commands against a book first filled to its size.
+5 repetitions, medians) on an Apple M3, macOS 26.6.2, Apple Clang 21 at -O3, on battery with Low Power Mode off and
+other apps open. Synthetic commands from `RandomFlow` (seed 42, the default mix); each run times 10,000 commands
+against a book first filled to its size. Two runs: at `ec245ab` (11:40, battery 44%, load average 1.9), and at
+`a900bb9` (12:16, battery 52%, load average 3.0), after the stream gained double spoils and resends, which is why
+the books differ a little.
 
-| Book held near | Resting orders at the start | Reference model, commands/s | Per command |
-|---|---|---|---|
-| 10 | 6 | 85.9 M | 11.6 ns |
-| 100 | 74 | 26.1 M | 38 ns |
-| 1,000 | 582 | 4.54 M | 220 ns |
-| 10,000 | 5,417 | 535 k | 1.87 µs |
+| Book held near | Resting at the start | Commands/s, `ec245ab` | Per command | Resting | Commands/s, `a900bb9` | Per command |
+|---|---|---|---|---|---|---|
+| 10 | 6 | 85.9 M | 11.6 ns | 6 | 85.5 M | 11.8 ns |
+| 100 | 74 | 26.1 M | 38 ns | 70 | 23.0 M | 43 ns |
+| 1,000 | 582 | 4.54 M | 220 ns | 567 | 4.36 M | 233 ns |
+| 10,000 | 5,417 | 535 k | 1.87 µs | 5,540 | 502 k | 2.03 µs |
 
-From 582 to 5,417 orders (9.3 times as many) the cost per command grew 8.5 times: linear in the book's size, as a
-model that scans a side for every fill and cancel should be. Generating a command costs 13.5 ns
-(`BM_RandomFlowNext`), and benchmarks generate their commands before timing. macOS doesn't let Google Benchmark pin
+The second run was slower by up to 12% and noisier (coefficients of variation up to 8.5% in wall time, against 1.7%
+at most in the first), on a busier machine. Either way, from about 570 to about 5,500 orders (9.3 to 9.8 times as
+many) the cost per command grew 8.5 to 8.7 times: linear in the book's size, as a model that scans a side for every
+fill and cancel should be. Generating a command costs 13.5 ns in the first run and 16.5 ns in the second
+(`BM_RandomFlowNext`); benchmarks generate their commands before timing. macOS doesn't let Google Benchmark pin
 its thread ("Failed to set thread affinity"), and the CPU frequency it prints (24 MHz) is the timer's, not the
 core's.
 
@@ -166,10 +170,11 @@ core's.
 
 92 tests (`make check`), each a separate CTest test; CI runs them on four jobs and fuzzes on a fifth.
 
-`make coverage` (Clang source-based coverage, at the commit that added it): the GoogleTest suite runs 98.6% of the
-lines in `src/` and `include/` (687 of 697), 96.4% of branches (426 of 442) and 97.2% of regions. The 10 lines it
-doesn't run are the `"?"` fallbacks for enum values outside their names (four), `PrintTo` (called only when an
-assertion fails; three), and three defaulted `==` operators the tests never call directly.
+`make coverage` (Clang source-based coverage, at `a900bb9`): the GoogleTest suite runs 98.7% of the lines in `src/`
+and `include/` (741 of 751), 97.3% of branches (469 of 482) and 97.8% of regions. The 10 lines it doesn't run are the
+`"?"` fallbacks for enum values outside their names (four), `PrintTo` (called only when an assertion fails; three),
+and three defaulted `==` operators the tests never call directly. (At `7e6a317`, before the review's fixes and the
+minimizer: 687 of 697 lines, 426 of 442 branches.)
 
 | File | What it checks |
 |---|---|
