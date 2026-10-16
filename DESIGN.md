@@ -242,7 +242,7 @@ replay and L2 snapshots.
 
 | Day | Delivers |
 |---|---|
-| 1 | This design, the CMake scaffold, the types and text format, the reference model, scenario files, the random command generator and invariant checks, the benchmark harness, CI on Linux and macOS. |
+| 1 | This design, the CMake scaffold, the types and text format, the reference model, scenario files, the random command generator and invariant checks (the Audit), a minimizer for failing runs, fuzz targets, the CLI, the benchmark harness, coverage, CI on Linux and macOS. |
 | 2 | The matching engine (price levels, FIFO per level, trade events), differential tests against the reference. |
 | 3 | Performance: intrusive lists, object pools, no allocation on the hot path; a lock-free SPSC ring; benchmarks (orders/s, latency percentiles). |
 | 4 | Replay of a synthetic market-data stream, L2 snapshots, the TCP gateway (8107) with a load generator. |

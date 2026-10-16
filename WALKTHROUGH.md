@@ -133,8 +133,8 @@ instead; the rerun disabled the condition.
 `minimize` is ddmin: given a failing stream and a function that replays a stream from scratch and says whether it
 still fails, it drops chunks while the failure persists, then smaller chunks, down to single commands, so every
 command left is needed. In the tests a deliberately broken book (a trade a tick off when its maker had traded before)
-fails a 3,000-command random run, and 43 replays leave three commands: a resting sell, a market buy that part-fills it,
-and a limit buy that trades with it again. Day 2 uses it to report engine-versus-reference disagreements.
+fails a 3,000-command random run, and 32 replays leave three commands: a resting sell, an IOC buy that part-fills it,
+and a market buy that trades with it again. Day 2 uses it to report engine-versus-reference disagreements.
 
 **How is the code fuzzed?**
 Two libFuzzer targets in `fuzz/`: arbitrary bytes into the text parsers (a line that parses must format and parse back

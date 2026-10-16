@@ -6,8 +6,8 @@ a single event.
 
 **Status: day 1 of 5.** The specification ([DESIGN.md](DESIGN.md)), the shared types and text format, the
 reference model that implements the rules literally, the test kit around it (scenario files, a seeded random
-command stream, invariant checks), a command-line tool, the benchmark harness, and CI on Linux and macOS. The fast
-engine is day 2's work; it will run against everything here.
+command stream, invariant checks, a minimizer for failing runs, two fuzz targets), a command-line tool, the benchmark
+harness, coverage, and CI on Linux and macOS. The fast engine is day 2's work; it will run against everything here.
 
 ## Why it is built this way
 
@@ -21,8 +21,8 @@ to the best order by price and then arrival, at the right price, for the right q
    is a vector in arrival order, and the best order is found by scanning it. It is slow on purpose. It is the
    oracle the engine is compared with, event for event, on millions of random commands.
 3. **Independent checks** of any book: `Audit` follows a run and checks every event against its own record of the
-   orders, and `check_book` checks a book's state. They share none of the reference model's matching code, so they check the
-   oracle too.
+   orders, and `check_book` checks a book's state. They share none of the reference model's matching code, so they
+   check the oracle too.
 4. **Determinism** everywhere: the same commands give the same events on every platform, and the same seed gives
    the same random commands with libstdc++ and libc++, so a failure in CI can be replayed on this Mac.
 
@@ -56,7 +56,8 @@ has that diagram and the plan for each day.
 | `include/orderbook/check.hpp` | `check_book` and `Audit` |
 | `include/orderbook/minimize.hpp` | Shrinks a failing command stream to the commands the failure needs |
 | `tools/orderbook_cli.cpp` | The `orderbook` command-line tool |
-| `tests/`, `bench/` | GoogleTest suite and scenario files; Google Benchmark suite |
+| `tests/`, `bench/`, `fuzz/` | GoogleTest suite and scenario files; Google Benchmark suite; libFuzzer targets |
+| `scripts/gcc_check.sh` | Compiles the project with Homebrew's GCC, to catch GCC-only warnings before CI does |
 
 The `orderbook` library will hold the engine and has no dependencies; `orderbook_testkit` holds the reference model
 and the checks, for tests, benchmarks and the tool.
@@ -106,7 +107,8 @@ make check
 
 Configures the `dev` preset (Debug, warnings as errors) into `build/dev`, builds everything, and runs the 92 tests.
 `make asan` runs them under AddressSanitizer and UndefinedBehaviorSanitizer; `make bench` builds the `release`
-preset (-O3) and runs the benchmarks; `make coverage` reports the tests' line and branch coverage (Clang only).
+preset (-O3) and runs the benchmarks; `make coverage` reports the tests' line and branch coverage (Clang only);
+`make gcc-check` compiles the project's files with GCC 15, Debug and Release, warnings as errors.
 
 The command-line tool (`build/dev/orderbook`, using the reference model):
 
@@ -117,27 +119,27 @@ build/dev/orderbook audit 1 100000 --target 500   # a random run with every inva
 ```
 
 `run`'s transcript is itself a scenario file, so a failing random case can be saved, cut down by hand, and kept as a
-test. The last command printed `commands 100000, accepted 57535, rejected 17903, trades 27680, cancelled 29255;
-resting at the end 303, at most 335` in 0.81 s (Debug build); most of the rejections are cancels of orders that had
-already filled.
+test. The last command printed `commands 100000, accepted 57523, rejected 17942, trades 27686, cancelled 29213;
+resting at the end 331, at most 344` in 0.89 s (Debug build, at `dc9ea98`); most of the rejections are cancels of
+orders that had already filled.
 
 ## When a random run fails
 
 `minimize` (`include/orderbook/minimize.hpp`, ddmin) shrinks a failing stream to commands that still fail, each of
 which is needed. In `minimize_test.cpp` a deliberately broken book reports a tick too high for any trade with a maker
-that has traded before; the Audit catches it in a 3,000-command random run, and 43 replays later this is what is left
-(printed by a throwaway program with the test's broken book; the ids are the random stream's):
+that has traded before; the Audit catches it in a 3,000-command random run, and 32 replays later this is what is left
+(printed by a throwaway program with the test's broken book, at `dc9ea98`; the ids are the random stream's):
 
 ```
-> new 1757 sell limit 84 @ 9956
-accepted 1757
-> new 1760 buy market 40
-accepted 1760
-trade 1760 1757 40 @ 9956
-> new 1769 buy limit 6 @ 9964
-accepted 1769
-trade 1769 1757 6 @ 9957
-audit: command 3 'new 1769 buy limit 6 @ 9964': 'trade 1769 1757 6 @ 9957': the maker's price is 9956
+> new 1754 sell limit 76 @ 9943
+accepted 1754
+> new 1758 buy ioc 1 @ 9950
+accepted 1758
+trade 1758 1754 1 @ 9943
+> new 1762 buy market 40
+accepted 1762
+trade 1762 1754 40 @ 9944
+audit: command 3 'new 1762 buy market 40': 'trade 1762 1754 40 @ 9944': the maker's price is 9943
 ```
 
 Day 2's differential tests will report a disagreement between the engine and the reference model the same way.
