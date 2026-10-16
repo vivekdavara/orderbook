@@ -1,0 +1,19 @@
+# Time priority on the bid side, and how it is lost: an order cancelled and sent again joins the back of the queue.
+> new 1 buy limit 4 @ 50
+accepted 1
+> new 2 buy limit 4 @ 50
+accepted 2
+> new 3 buy limit 4 @ 50
+accepted 3
+> cancel 1
+cancelled 1 4 requested
+> new 4 buy limit 4 @ 50
+accepted 4
+= bids 50x12
+> new 5 sell limit 10 @ 50
+accepted 5
+trade 5 2 4 @ 50
+trade 5 3 4 @ 50
+trade 5 4 2 @ 50
+= bids 50x2
+= asks

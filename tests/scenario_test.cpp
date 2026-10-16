@@ -57,7 +57,7 @@ INSTANTIATE_TEST_SUITE_P(Files, ScenarioFile, ::testing::ValuesIn(scenario_files
 
 TEST(Scenario, TheFilesAreThere) {
   // A wrong directory would otherwise instantiate no file tests, and pass.
-  EXPECT_GE(scenario_files().size(), 11U) << ORDERBOOK_SCENARIO_DIR;
+  EXPECT_GE(scenario_files().size(), 14U) << ORDERBOOK_SCENARIO_DIR;
 }
 
 TEST(Scenario, ParsesCommandsEventsAndDepthWithTheirLines) {

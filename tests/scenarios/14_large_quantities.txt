@@ -1,0 +1,20 @@
+# Quantities up to 10^9 lots an order. A level's total is a sum, so it may go past that.
+> new 1 sell limit 1000000000 @ 7
+accepted 1
+> new 2 sell limit 1000000000 @ 7
+accepted 2
+= asks 7x2000000000
+> new 3 buy limit 1000000000 @ 7
+accepted 3
+trade 3 1 1000000000 @ 7
+= asks 7x1000000000
+> new 4 buy market 999999999
+accepted 4
+trade 4 2 999999999 @ 7
+= asks 7x1
+> new 5 buy ioc 1000000000 @ 1000000000
+accepted 5
+trade 5 2 1 @ 7
+cancelled 5 999999999 unfilled
+= asks
+= bids

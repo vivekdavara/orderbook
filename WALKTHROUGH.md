@@ -79,7 +79,7 @@ best order. That's fine for an oracle and is never optimised.
 
 **How do you know the reference model is right?**
 Three independent ways. It is short enough to read against DESIGN.md line by line (the comments name the rules).
-The eleven scenario files were written by hand from DESIGN.md, not recorded from the code, so they encode what the
+The fourteen scenario files were written by hand from DESIGN.md, not recorded from the code, so they encode what the
 rules say, not what the code does. And `Audit` (`src/check.cpp`) checks every event of long random runs against its
 own record of the resting orders, with no code shared with the reference: 160,000 random commands in
 `check_test.cpp`.

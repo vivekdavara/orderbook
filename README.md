@@ -104,7 +104,7 @@ configure time as release tarballs pinned by SHA-256.
 make check
 ```
 
-Configures the `dev` preset (Debug, warnings as errors) into `build/dev`, builds everything, and runs the 75 tests.
+Configures the `dev` preset (Debug, warnings as errors) into `build/dev`, builds everything, and runs the 78 tests.
 `make asan` runs them under AddressSanitizer and UndefinedBehaviorSanitizer; `make bench` builds the `release`
 preset (-O3) and runs the benchmarks; `make coverage` reports the tests' line and branch coverage (Clang only).
 
@@ -164,7 +164,7 @@ core's.
 
 ## Tests
 
-75 tests (`make check`), each a separate CTest test, green on all four CI jobs.
+78 tests (`make check`), each a separate CTest test, green on all four CI jobs.
 
 `make coverage` (Clang source-based coverage, at the commit that added it): the GoogleTest suite runs 98.6% of the
 lines in `src/` and `include/` (687 of 697), 96.4% of branches (426 of 442) and 97.2% of regions. The 10 lines it
@@ -176,7 +176,7 @@ assertion fails; three), and three defaulted `==` operators the tests never call
 | `types_test.cpp` | The strong types don't convert into each other; bounds are inclusive; the words round-trip |
 | `text_test.cpp` | Each command and event's exact text; strict parsing (20 malformed lines, each with its reason); 20,000 random commands, edge values included, parse back to themselves |
 | `reference_book_test.cpp` | The reference model's queries, the order of the validation checks, a rejection changing nothing, which orders can be cancelled |
-| `scenario_test.cpp` + `scenarios/*.txt` | Eleven hand-written scripts, one or more per rule; the parser's and runner's error reports, with line numbers |
+| `scenario_test.cpp` + `scenarios/*.txt` | Fourteen hand-written scripts, one or more per rule; the parser's and runner's error reports, with line numbers |
 | `random_flow_test.cpp` | Same seed same stream; a pinned hash of seed 1's first 100,000 commands, so Linux and macOS must agree; the documented mix; every event kind and reject reason occurs |
 | `check_test.cpp` | The reference model passes `Audit` and `check_book` over 160,000 random commands: four seeds of the default mix, and mixes with long queues at three prices, quantities up to 10^9 on a near-empty book, and 30% invalid orders; each check is shown to fail on events or a state that break its rule |
 | `minimize_test.cpp` | The minimizer keeps exactly what a failure needs, in order, and is 1-minimal; random runs that catch two deliberately broken books shrink to 3 commands and to 1 |

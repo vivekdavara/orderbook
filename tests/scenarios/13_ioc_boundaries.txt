@@ -1,0 +1,29 @@
+# An IOC crosses at exactly the other side's best price, and not a tick short of it.
+> new 1 sell limit 5 @ 200
+accepted 1
+> new 2 buy limit 5 @ 190
+accepted 2
+> new 3 buy ioc 5 @ 199
+accepted 3
+cancelled 3 5 unfilled
+> new 4 sell ioc 5 @ 191
+accepted 4
+cancelled 4 5 unfilled
+= bids 190x5
+= asks 200x5
+> new 5 buy ioc 2 @ 200
+accepted 5
+trade 5 1 2 @ 200
+> new 6 sell ioc 2 @ 190
+accepted 6
+trade 6 2 2 @ 190
+= bids 190x3
+= asks 200x3
+
+# A market order stops only when it is filled or the other side runs out.
+> new 7 sell market 100
+accepted 7
+trade 7 2 3 @ 190
+cancelled 7 97 unfilled
+= bids
+= asks 200x3
