@@ -47,6 +47,8 @@ jobs:
           cmake --build --preset release -j 4
       - name: Test (Release)
         run: ctest --preset release -j 4
+      - name: Run the benchmarks briefly (a smoke test; the numbers aren't used)
+        run: ./build/release/bench/orderbook_bench --benchmark_min_time=0.01s
 
   sanitizers:
     name: Linux, Clang 18, ASan + UBSan

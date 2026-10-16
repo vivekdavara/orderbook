@@ -11,6 +11,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 option(ORDERBOOK_BUILD_TESTS "Build the GoogleTest suite" ${PROJECT_IS_TOP_LEVEL})
+option(ORDERBOOK_BUILD_BENCHMARKS "Build the Google Benchmark suite" ${PROJECT_IS_TOP_LEVEL})
 option(ORDERBOOK_WERROR "Treat compiler warnings as errors" OFF)
 set(ORDERBOOK_SANITIZE "" CACHE STRING "Sanitizers to build with, e.g. address,undefined (empty for none)")
 
@@ -36,8 +37,15 @@ add_library(orderbook::testkit ALIAS orderbook_testkit)
 target_link_libraries(orderbook_testkit PUBLIC orderbook::orderbook)
 orderbook_set_warnings(orderbook_testkit)
 
-if(ORDERBOOK_BUILD_TESTS)
+if(ORDERBOOK_BUILD_TESTS OR ORDERBOOK_BUILD_BENCHMARKS)
   include(cmake/Dependencies.cmake)
+endif()
+
+if(ORDERBOOK_BUILD_TESTS)
   enable_testing()
   add_subdirectory(tests)
+endif()
+
+if(ORDERBOOK_BUILD_BENCHMARKS)
+  add_subdirectory(bench)
 endif()

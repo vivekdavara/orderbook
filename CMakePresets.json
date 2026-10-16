@@ -13,13 +13,13 @@
     },
     {
       "name": "dev",
-      "displayName": "Debug with tests, warnings as errors",
+      "displayName": "Debug with tests and benchmarks, warnings as errors",
       "inherits": "base",
       "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug" }
     },
     {
       "name": "release",
-      "displayName": "Optimised (-O3 -DNDEBUG)",
+      "displayName": "Optimised (-O3 -DNDEBUG), for benchmarks",
       "inherits": "base",
       "cacheVariables": { "CMAKE_BUILD_TYPE": "Release" }
     },
@@ -29,7 +29,8 @@
       "inherits": "base",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
-        "ORDERBOOK_SANITIZE": "address,undefined"
+        "ORDERBOOK_SANITIZE": "address,undefined",
+        "ORDERBOOK_BUILD_BENCHMARKS": "OFF"
       }
     }
   ],
