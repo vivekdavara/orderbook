@@ -100,6 +100,9 @@ void Audit::record_new(const NewOrder& order, const std::vector<Event>& events) 
   for (; next < events.size() && std::holds_alternative<Trade>(events[next]); ++next) {
     const Trade& trade = std::get<Trade>(events[next]);
     const std::string what = "'" + format(trade) + "'";
+    // Rule 2 trades only while the taker has quantity left. Without this, once it was filled every further trade
+    // would expect a fill of min(0, ...) = 0 lots, and any number of 0-lot trades would pass.
+    if (remaining == Quantity{0}) return problem(what + ": the taker was already filled");
     if (trade.taker != order.id) return problem(what + ": the taker isn't the new order");
     const std::optional<OrderId> maker_id = best(opposite(order.side));
     if (!maker_id) return problem(what + ": nothing rests on the other side");
