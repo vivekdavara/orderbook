@@ -44,6 +44,19 @@ TEST(Minimize, KeepsExactlyTheCommandsTheFailureNeeds) {
   EXPECT_LT(calls, 200);
 }
 
+TEST(Minimize, NeedsFarFewerReplaysThanCommands) {
+  // 1,000 commands, two of them needed: 56 replays here. Variants of the chunking (coarsening by more or not at all,
+  // refining by one instead of doubling) took 50 to 63 on the same input, so this doesn't pin the variant; it catches
+  // a minimizer that tries commands one at a time, which takes about one replay a command.
+  int calls = 0;
+  const auto fails = [&](const std::vector<Command>& commands) {
+    ++calls;
+    return contains(commands, 370) && contains(commands, 810);
+  };
+  EXPECT_EQ(lines(minimize(cancels(1'000), fails)), (std::vector<std::string>{"cancel 370", "cancel 810"}));
+  EXPECT_LT(calls, 100);
+}
+
 TEST(Minimize, ReturnsAStreamThatDoesNotFailUnchanged) {
   int calls = 0;
   const auto never = [&](const std::vector<Command>&) {
