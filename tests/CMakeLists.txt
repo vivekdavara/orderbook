@@ -1,6 +1,7 @@
 include(GoogleTest)
 
 add_executable(orderbook_tests
+  check_test.cpp
   random_flow_test.cpp
   reference_book_test.cpp
   scenario_test.cpp
