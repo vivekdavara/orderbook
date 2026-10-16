@@ -14,9 +14,14 @@ option(ORDERBOOK_BUILD_TESTS "Build the GoogleTest suite" ${PROJECT_IS_TOP_LEVEL
 option(ORDERBOOK_BUILD_BENCHMARKS "Build the Google Benchmark suite" ${PROJECT_IS_TOP_LEVEL})
 option(ORDERBOOK_WERROR "Treat compiler warnings as errors" OFF)
 set(ORDERBOOK_SANITIZE "" CACHE STRING "Sanitizers to build with, e.g. address,undefined (empty for none)")
+option(ORDERBOOK_COVERAGE "Build with Clang's source-based coverage (make coverage)" OFF)
 
 include(cmake/Warnings.cmake)
 include(cmake/Sanitizers.cmake)
+if(ORDERBOOK_COVERAGE)
+  add_compile_options(-fprofile-instr-generate -fcoverage-mapping)
+  add_link_options(-fprofile-instr-generate)
+endif()
 
 add_library(orderbook
   src/text.cpp

@@ -35,7 +35,6 @@ class RandomFlow {
 
   // Limit orders sent, valid and not yet cancelled by this stream: an upper bound on what rests from it.
   std::size_t cancel_candidates() const { return candidates_.size(); }
-  std::int64_t mid() const { return mid_; }
 
  private:
   std::uint64_t next_u64();

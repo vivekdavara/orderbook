@@ -105,7 +105,7 @@ make check
 
 Configures the `dev` preset (Debug, warnings as errors) into `build/dev`, builds everything, and runs the 69 tests.
 `make asan` runs them under AddressSanitizer and UndefinedBehaviorSanitizer; `make bench` builds the `release`
-preset (-O3) and runs the benchmarks.
+preset (-O3) and runs the benchmarks; `make coverage` reports the tests' line and branch coverage (Clang only).
 
 The command-line tool (`build/dev/orderbook`, using the reference model):
 
@@ -143,6 +143,11 @@ core's.
 ## Tests
 
 69 tests (`make check`), each a separate CTest test, green on all four CI jobs.
+
+`make coverage` (Clang source-based coverage, at the commit that added it): the GoogleTest suite runs 98.6% of the
+lines in `src/` and `include/` (687 of 697), 96.4% of branches (426 of 442) and 97.2% of regions. The 10 lines it
+doesn't run are the `"?"` fallbacks for enum values outside their names (four), `PrintTo` (called only when an
+assertion fails; three), and three defaulted `==` operators the tests never call directly.
 
 | File | What it checks |
 |---|---|
