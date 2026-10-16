@@ -107,8 +107,40 @@ often evaluates right to left.
 
 **How is that determinism actually verified?**
 `RandomFlow.TheStreamIsTheSameOnEveryPlatform` hashes seed 1's first 100,000 commands and compares with a pinned
-value, and CI runs it with GCC and Clang on Linux, Apple Clang on macOS, and under the sanitizers. It passed on all
-four the first time it ran there.
+value, and `Invariants.TheReferenceModelsEventsAndBookAreTheSameOnEveryPlatform` does the same for every event the
+reference model produces on 50,000 commands and the book it ends with (I7). CI runs both with GCC and Clang on Linux,
+Apple Clang on macOS, and under the sanitizers, in Debug and Release; both passed on all four jobs the first time
+they ran there.
+
+**Tell me about a bug you found in your own test tooling.**
+The Audit, the checker meant to catch a wrong engine, would have passed one. Its trade loop compared each trade's
+quantity with the smaller of the taker's and the maker's remaining quantities, but never checked that the taker had
+any left. After a taker was filled, the expected fill was `min(0, ...)` = 0, so an engine that emitted
+`trade 3 2 0 @ 101` after the real fills, any number of times, passed. The day-1 review found it by asking what wrong
+event streams the Audit would accept; the fix is one line at the top of the loop (`src/check.cpp`), and the review's
+two tests are kept in `tests/review/`. The reference model never emitted such events, so no earlier result changed.
+
+**How do you know the tests test anything?**
+Mutation checks: change one mechanism (delete a check, swap two comparisons) and see whether any test fails. The
+review made 67 such changes; four went unnoticed (the Audit's limit check and its quantity-before-price order,
+`check_book`'s best-price check, RandomFlow's mid clamp), and each now has a test that fails without it. A
+reference model whose rejections use up the id now fails 13 tests, among them all four random invariant runs, because
+the random stream sends some rejected orders again under the same id. One trap: a mutant that doesn't compile tests
+nothing. Deleting the best-price check left unused variables, `-Werror` stopped the build, and the old binary ran
+instead; the rerun disabled the condition.
+
+**What does the minimizer do?**
+`minimize` is ddmin: given a failing stream and a function that replays a stream from scratch and says whether it
+still fails, it drops chunks while the failure persists, then smaller chunks, down to single commands, so every
+command left is needed. In the tests a deliberately broken book (a trade a tick off when its maker had traded before)
+fails a 3,000-command random run, and 43 replays leave three commands: a resting sell, a market buy that part-fills it,
+and a limit buy that trades with it again. Day 2 uses it to report engine-versus-reference disagreements.
+
+**How is the code fuzzed?**
+Two libFuzzer targets in `fuzz/`: arbitrary bytes into the text parsers (a line that parses must format and parse back
+to itself), and bytes decoded into commands on 16 prices for the reference model under the Audit and `check_book`
+after every command. CI runs each for 60 s under ASan and UBSan; Apple Clang has no libFuzzer, so on the Mac and in
+the other jobs a small `main()` runs them on the scenario files and on seeded random inputs.
 
 ## Build and CI
 
