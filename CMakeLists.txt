@@ -28,7 +28,8 @@ orderbook_set_warnings(orderbook)
 # What tests, benchmarks and tools use to check a book: the reference model (the oracle) and, as they are added, the
 # scenario runner, the random command generator and the invariant checks. Kept out of the engine's library.
 add_library(orderbook_testkit
-  src/reference_book.cpp)
+  src/reference_book.cpp
+  src/scenario.cpp)
 add_library(orderbook::testkit ALIAS orderbook_testkit)
 target_link_libraries(orderbook_testkit PUBLIC orderbook::orderbook)
 orderbook_set_warnings(orderbook_testkit)

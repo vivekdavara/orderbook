@@ -1,0 +1,26 @@
+# A limit order that crosses several levels takes them best first, then rests what is left at its own price, where
+# it is now the best bid: the book is never left crossed.
+> new 1 sell limit 2 @ 100
+accepted 1
+> new 2 sell limit 2 @ 101
+accepted 2
+> new 3 sell limit 2 @ 102
+accepted 3
+> new 4 sell limit 2 @ 104
+accepted 4
+> new 5 buy limit 1 @ 98
+accepted 5
+> new 6 buy limit 9 @ 102
+accepted 6
+trade 6 1 2 @ 100
+trade 6 2 2 @ 101
+trade 6 3 2 @ 102
+= bids 102x3 98x1
+= asks 104x2
+
+# An order at exactly the best price on the other side crosses: equal prices trade.
+> new 7 sell limit 1 @ 102
+accepted 7
+trade 7 6 1 @ 102
+= bids 102x2 98x1
+= asks 104x2

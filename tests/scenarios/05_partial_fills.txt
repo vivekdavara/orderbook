@@ -1,0 +1,21 @@
+# A limit order that trades part of its quantity rests the rest at its own price.
+> new 1 sell limit 3 @ 101
+accepted 1
+> new 2 buy limit 10 @ 101
+accepted 2
+trade 2 1 3 @ 101
+= bids 101x7
+= asks
+
+# A maker can be filled by several takers; each trade takes from what is left.
+> new 3 sell limit 2 @ 101
+accepted 3
+trade 3 2 2 @ 101
+> new 4 sell limit 4 @ 100
+accepted 4
+trade 4 2 4 @ 101
+= bids 101x1
+> cancel 2
+cancelled 2 1 requested
+= bids
+= asks

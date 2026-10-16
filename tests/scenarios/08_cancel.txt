@@ -1,0 +1,41 @@
+# A cancel removes a resting order and reports what was left of it.
+> new 1 buy limit 5 @ 100
+accepted 1
+> new 2 buy limit 6 @ 100
+accepted 2
+> new 3 buy limit 7 @ 100
+accepted 3
+> cancel 2
+cancelled 2 6 requested
+= bids 100x12
+
+# The orders behind it move up, and the rest keep their order.
+> new 4 sell limit 8 @ 100
+accepted 4
+trade 4 1 5 @ 100
+trade 4 3 3 @ 100
+= bids 100x4
+
+# A partly filled order reports what is left of it.
+> cancel 3
+cancelled 3 4 requested
+= bids
+
+# Cancelling it again, a filled order, or an id never sent is rejected.
+> cancel 3
+rejected 3 unknown-order
+> cancel 1
+rejected 1 unknown-order
+> cancel 4
+rejected 4 unknown-order
+> cancel 42
+rejected 42 unknown-order
+
+# The last order at a price takes its level with it.
+> new 5 sell limit 1 @ 105
+accepted 5
+> new 6 sell limit 1 @ 106
+accepted 6
+> cancel 5
+cancelled 5 1 requested
+= asks 106x1

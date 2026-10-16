@@ -1,0 +1,27 @@
+# Limit orders that don't cross rest on their own side, best price first.
+> new 1 buy limit 10 @ 100
+accepted 1
+= bids 100x10
+= asks
+> new 2 buy limit 5 @ 101
+accepted 2
+= bids 101x5 100x10
+> new 3 buy limit 7 @ 99
+accepted 3
+= bids 101x5 100x10 99x7
+> new 4 sell limit 3 @ 103
+accepted 4
+> new 5 sell limit 8 @ 102
+accepted 5
+> new 6 sell limit 2 @ 104
+accepted 6
+= asks 102x8 103x3 104x2
+= bids 101x5 100x10 99x7
+
+# Orders at a price that already has orders join its level.
+> new 7 buy limit 4 @ 100
+accepted 7
+= bids 101x5 100x14 99x7
+> new 8 sell limit 1 @ 103
+accepted 8
+= asks 102x8 103x4 104x2

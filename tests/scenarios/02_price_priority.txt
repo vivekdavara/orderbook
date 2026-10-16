@@ -1,0 +1,31 @@
+# A buy takes the lowest ask first, whatever order the asks arrived in.
+> new 1 sell limit 5 @ 103
+accepted 1
+> new 2 sell limit 5 @ 101
+accepted 2
+> new 3 sell limit 5 @ 102
+accepted 3
+> new 4 buy limit 5 @ 103
+accepted 4
+trade 4 2 5 @ 101
+= asks 102x5 103x5
+> new 5 buy limit 6 @ 103
+accepted 5
+trade 5 3 5 @ 102
+trade 5 1 1 @ 103
+= asks 103x4
+= bids
+
+# A sell takes the highest bid first.
+> new 6 buy limit 5 @ 97
+accepted 6
+> new 7 buy limit 5 @ 99
+accepted 7
+> new 8 buy limit 5 @ 98
+accepted 8
+> new 9 sell limit 7 @ 97
+accepted 9
+trade 9 7 5 @ 99
+trade 9 8 2 @ 98
+= bids 98x3 97x5
+= asks 103x4

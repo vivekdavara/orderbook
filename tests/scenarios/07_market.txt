@@ -1,0 +1,35 @@
+# A market order trades at any price, best first, and cancels what the book can't fill.
+> new 1 sell limit 2 @ 101
+accepted 1
+> new 2 sell limit 3 @ 150
+accepted 2
+> new 3 sell limit 4 @ 999999999
+accepted 3
+> new 4 buy market 6
+accepted 4
+trade 4 1 2 @ 101
+trade 4 2 3 @ 150
+trade 4 3 1 @ 999999999
+= asks 999999999x3
+> new 5 buy market 10
+accepted 5
+trade 5 3 3 @ 999999999
+cancelled 5 7 unfilled
+= asks
+
+# Against an empty side there is nothing to trade with.
+> new 6 sell market 1
+accepted 6
+cancelled 6 1 unfilled
+
+# A market order has no price.
+> new 7 sell market 1 @ 100
+rejected 7 invalid-price
+> new 7 buy limit 5 @ 1
+accepted 7
+> new 8 sell market 7
+accepted 8
+trade 8 7 5 @ 1
+cancelled 8 2 unfilled
+= bids
+= asks

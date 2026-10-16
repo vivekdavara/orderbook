@@ -1,0 +1,160 @@
+#include "orderbook/scenario.hpp"
+
+#include <gtest/gtest.h>
+
+#include <algorithm>
+#include <cctype>
+#include <filesystem>
+#include <fstream>
+#include <sstream>
+#include <string>
+#include <vector>
+
+#include "orderbook/reference_book.hpp"
+
+namespace orderbook {
+namespace {
+
+namespace fs = std::filesystem;
+
+std::vector<fs::path> scenario_files() {
+  std::vector<fs::path> files;
+  for (const fs::directory_entry& entry : fs::directory_iterator(ORDERBOOK_SCENARIO_DIR)) {
+    if (entry.path().extension() == ".txt") files.push_back(entry.path());
+  }
+  std::sort(files.begin(), files.end());
+  return files;
+}
+
+std::string read_file(const fs::path& path) {
+  std::ifstream in(path, std::ios::binary);
+  std::ostringstream text;
+  text << in.rdbuf();
+  return text.str();
+}
+
+class ScenarioFile : public ::testing::TestWithParam<fs::path> {};
+
+TEST_P(ScenarioFile, PassesOnTheReferenceModel) {
+  std::string error;
+  const auto scenario = parse_scenario(read_file(GetParam()), &error);
+  ASSERT_TRUE(scenario.has_value()) << GetParam().filename() << " " << error;
+  ASSERT_FALSE(scenario->empty()) << GetParam().filename() << " has no commands";
+  ReferenceBook book;
+  EXPECT_EQ(run_scenario(*scenario, book), "") << GetParam().filename();
+}
+
+INSTANTIATE_TEST_SUITE_P(Files, ScenarioFile, ::testing::ValuesIn(scenario_files()),
+                         [](const ::testing::TestParamInfo<fs::path>& info) {
+                           std::string name = info.param.stem().string();
+                           std::replace_if(
+                               name.begin(), name.end(), [](char c) { return !std::isalnum(static_cast<unsigned char>(c)); },
+                               '_');
+                           return name;
+                         });
+
+TEST(Scenario, TheFilesAreThere) {
+  // A wrong directory would otherwise instantiate no file tests, and pass.
+  EXPECT_GE(scenario_files().size(), 11U) << ORDERBOOK_SCENARIO_DIR;
+}
+
+TEST(Scenario, ParsesCommandsEventsAndDepthWithTheirLines) {
+  const auto scenario = parse_scenario(
+      "# a comment\n"
+      "\n"
+      "> new 1 sell limit 10 @ 101\n"
+      "accepted   1\n"
+      "= asks 101x10\n"
+      "= bids\n"
+      ">cancel 1\r\n"
+      "\tcancelled 1 10 requested\n");
+  ASSERT_TRUE(scenario.has_value());
+  ASSERT_EQ(scenario->size(), 2U);
+  const ScenarioStep& first = (*scenario)[0];
+  EXPECT_EQ(first.line, 3);
+  EXPECT_EQ(first.command, (Command{NewOrder{OrderId{1}, Side::Sell, OrderType::Limit, Quantity{10}, Price{101}}}));
+  EXPECT_EQ(first.events, std::vector<std::string>{"accepted 1"});  // spacing normalised
+  ASSERT_EQ(first.depth.size(), 2U);
+  EXPECT_EQ(first.depth[0].line, 5);
+  EXPECT_EQ(first.depth[0].side, Side::Sell);
+  EXPECT_EQ(first.depth[0].levels, (std::vector<Level>{{Price{101}, Quantity{10}}}));
+  EXPECT_EQ(first.depth[1].side, Side::Buy);
+  EXPECT_TRUE(first.depth[1].levels.empty());
+  const ScenarioStep& second = (*scenario)[1];
+  EXPECT_EQ(second.line, 7);
+  EXPECT_EQ(second.command, Command{CancelOrder{OrderId{1}}});
+  EXPECT_EQ(second.events, std::vector<std::string>{"cancelled 1 10 requested"});
+}
+
+TEST(Scenario, AnEmptyFileHasNoSteps) {
+  EXPECT_EQ(parse_scenario(""), Scenario{});
+  EXPECT_EQ(parse_scenario("# only a comment\n\n"), Scenario{});
+}
+
+struct BadScenario {
+  const char* text;
+  const char* error;
+};
+
+TEST(Scenario, RejectsMalformedFilesNamingTheLine) {
+  const std::vector<BadScenario> cases{
+      {"accepted 1\n", "line 1: an expectation before any command"},
+      {"# x\n= bids\n", "line 2: an expectation before any command"},
+      {"> new 1 buy limit 10\n", "line 1: limit orders need '@ <price>'"},
+      {"> bogus\n", "line 1: unknown command 'bogus'"},
+      {"> new 1 buy limit 1 @ 1\n= buys 1x1\n", "line 2: expected '= bids ...' or '= asks ...'"},
+      {"> new 1 buy limit 1 @ 1\n=\n", "line 2: expected '= bids ...' or '= asks ...'"},
+      {"> new 1 buy limit 1 @ 1\n= bids 1x\n", "line 2: bad level '1x'"},
+      {"> new 1 buy limit 1 @ 1\n= bids 1x1\naccepted 1\n", "line 3: an event after the step's depth checks"},
+  };
+  for (const BadScenario& c : cases) {
+    std::string error;
+    EXPECT_EQ(parse_scenario(c.text, &error), std::nullopt) << c.text;
+    EXPECT_NE(error.find(c.error), std::string::npos) << "'" << c.text << "' gave '" << error << "'";
+  }
+}
+
+TEST(Scenario, ReportsTheFirstWrongEventsWithTheirLine) {
+  const auto scenario = parse_scenario(
+      "> new 1 sell limit 10 @ 101\n"
+      "accepted 1\n"
+      "> new 2 buy limit 4 @ 101\n"
+      "accepted 2\n"
+      "trade 2 1 4 @ 100\n"
+      "> new 3 buy limit 1 @ 1\n"
+      "nonsense\n");
+  ASSERT_TRUE(scenario.has_value());
+  ReferenceBook book;
+  EXPECT_EQ(run_scenario(*scenario, book),
+            "line 3: 'new 2 buy limit 4 @ 101'\n"
+            "expected events:\n  accepted 2\n  trade 2 1 4 @ 100\n"
+            "actual events:\n  accepted 2\n  trade 2 1 4 @ 101\n");
+  // It stopped there: the third command never ran.
+  EXPECT_EQ(book.last_accepted_id(), OrderId{2});
+}
+
+TEST(Scenario, MissingAndExtraEventsAreMismatchesToo) {
+  ReferenceBook book;
+  EXPECT_NE(run_scenario(*parse_scenario("> new 1 buy ioc 1 @ 1\naccepted 1\n"), book), "");
+  ReferenceBook other;
+  EXPECT_NE(run_scenario(*parse_scenario("> new 1 buy limit 1 @ 1\naccepted 1\naccepted 1\n"), other), "");
+  ReferenceBook third;
+  EXPECT_NE(run_scenario(*parse_scenario("> new 1 buy limit 1 @ 1\n"), third), "");
+}
+
+TEST(Scenario, ReportsAWrongDepthWithItsLine) {
+  const auto scenario = parse_scenario(
+      "> new 1 sell limit 10 @ 101\n"
+      "accepted 1\n"
+      "= bids\n"
+      "= asks 101x9\n");
+  ASSERT_TRUE(scenario.has_value());
+  ReferenceBook book;
+  EXPECT_EQ(run_scenario(*scenario, book), "line 4: expected '= asks 101x9', actual '= asks 101x10'");
+  ReferenceBook other;
+  EXPECT_EQ(run_scenario(*parse_scenario("> new 1 sell limit 10 @ 101\naccepted 1\n= asks\n"), other),
+            "line 3: expected '= asks', actual '= asks 101x10'");
+}
+
+}  // namespace
+}  // namespace orderbook

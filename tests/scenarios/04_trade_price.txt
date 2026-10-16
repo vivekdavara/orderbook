@@ -1,0 +1,23 @@
+# Every trade is at the resting order's price, so a taker that crosses deeper than it needs gets the better price.
+> new 1 sell limit 10 @ 100
+accepted 1
+> new 2 buy limit 4 @ 105
+accepted 2
+trade 2 1 4 @ 100
+> new 3 buy limit 5 @ 95
+accepted 3
+> new 4 sell limit 2 @ 90
+accepted 4
+trade 4 3 2 @ 95
+= bids 95x3
+= asks 100x6
+
+# IOC and market orders too.
+> new 5 buy market 1
+accepted 5
+trade 5 1 1 @ 100
+> new 6 sell ioc 1 @ 1
+accepted 6
+trade 6 3 1 @ 95
+= bids 95x2
+= asks 100x5

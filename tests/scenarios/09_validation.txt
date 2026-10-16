@@ -1,0 +1,38 @@
+# The checks run in order (the id, then the quantity, then the price), and the first that fails is the reason.
+> new 0 buy limit 1 @ 100
+rejected 0 id-not-increasing
+> new 1 buy limit 0 @ 0
+rejected 1 invalid-quantity
+> new 1 buy limit 1 @ 0
+rejected 1 invalid-price
+> new 1 buy limit -1 @ 100
+rejected 1 invalid-quantity
+> new 1 buy limit 1000000001 @ 100
+rejected 1 invalid-quantity
+> new 1 buy ioc 1 @ 1000000001
+rejected 1 invalid-price
+> new 1 buy ioc 1 @ -100
+rejected 1 invalid-price
+
+# A rejected order leaves nothing behind, so its id can be used again.
+= bids
+= asks
+> new 1 buy limit 1000000000 @ 1
+accepted 1
+> new 1 sell limit 1 @ 2
+rejected 1 id-not-increasing
+> new 2 sell limit 1 @ 1000000000
+accepted 2
+= bids 1x1000000000
+= asks 1000000000x1
+
+# Ids must increase, but may skip.
+> new 10 sell limit 1 @ 500
+accepted 10
+> new 9 sell limit 1 @ 500
+rejected 9 id-not-increasing
+> new 10 sell limit 1 @ 500
+rejected 10 id-not-increasing
+> new 11 sell limit 1 @ 500
+accepted 11
+= asks 500x2 1000000000x1

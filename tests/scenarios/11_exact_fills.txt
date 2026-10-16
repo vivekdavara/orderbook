@@ -1,0 +1,26 @@
+# A taker that exactly matches a maker fills both: the level goes, and nothing rests or is cancelled.
+> new 1 buy limit 5 @ 100
+accepted 1
+> new 2 sell limit 5 @ 100
+accepted 2
+trade 2 1 5 @ 100
+= bids
+= asks
+
+# A taker that exactly empties a level takes every order in it, in order.
+> new 3 buy limit 3 @ 100
+accepted 3
+> new 4 buy limit 2 @ 100
+accepted 4
+> new 5 sell market 5
+accepted 5
+trade 5 3 3 @ 100
+trade 5 4 2 @ 100
+= bids
+
+# So the side is empty again.
+> new 6 sell ioc 5 @ 100
+accepted 6
+cancelled 6 5 unfilled
+= bids
+= asks
