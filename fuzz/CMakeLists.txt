@@ -14,6 +14,9 @@ endforeach()
 if(NOT ORDERBOOK_FUZZ AND ORDERBOOK_BUILD_TESTS)
   file(GLOB fuzz_seed_files CONFIGURE_DEPENDS ${PROJECT_SOURCE_DIR}/tests/scenarios/*.txt)
   add_test(NAME fuzz.text_on_the_scenario_files COMMAND text_fuzz ${fuzz_seed_files})
+  # Each line on its own too: a command line, a depth line's levels, an event line. Whole files never parse as one
+  # command, so without this the round-trip checks would run only in CI's libFuzzer job.
+  add_test(NAME fuzz.text_on_each_scenario_line COMMAND text_fuzz --lines ${fuzz_seed_files})
   add_test(NAME fuzz.text_on_random_bytes COMMAND text_fuzz --random 2000 1)
   add_test(NAME fuzz.book_on_random_bytes COMMAND book_fuzz --random 2000 2)
 endif()

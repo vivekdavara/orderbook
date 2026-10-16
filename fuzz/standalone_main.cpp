@@ -1,5 +1,6 @@
 // A main() for the fuzz targets where libFuzzer isn't available (Apple Clang has no -fsanitize=fuzzer): runs the
-// target on each file named on the command line, or on COUNT random inputs with `--random COUNT SEED`. CTest uses it
+// target on each file named on the command line, on each line of each file with `--lines FILE...` (so a target that
+// parses one line at a time sees whole commands), or on COUNT random inputs with `--random COUNT SEED`. CTest uses it
 // to run both targets on every build, so they can't rot between CI's fuzzing runs.
 
 #include <cstddef>
@@ -32,7 +33,10 @@ int main(int argc, char** argv) {
     std::cout << "ran " << count << " random inputs\n";
     return 0;
   }
-  for (const std::string& path : args) {
+  const bool by_line = !args.empty() && args[0] == "--lines";
+  std::size_t inputs = 0;
+  for (std::size_t i = by_line ? 1 : 0; i < args.size(); ++i) {
+    const std::string& path = args[i];
     std::ifstream in(path, std::ios::binary);
     if (!in) {
       std::cerr << path << ": can't read it\n";
@@ -41,8 +45,21 @@ int main(int argc, char** argv) {
     std::ostringstream text;
     text << in.rdbuf();
     const std::string bytes = text.str();
-    LLVMFuzzerTestOneInput(reinterpret_cast<const std::uint8_t*>(bytes.data()), bytes.size());
+    if (!by_line) {
+      LLVMFuzzerTestOneInput(reinterpret_cast<const std::uint8_t*>(bytes.data()), bytes.size());
+      ++inputs;
+      continue;
+    }
+    std::istringstream lines(bytes);
+    for (std::string line; std::getline(lines, line); ++inputs) {
+      // A command line without its "> " and a depth line without its "= bids " or "= asks ", as parse_command and
+      // parse_levels take them; other lines as they are.
+      std::string input = line;
+      if (line.rfind("> ", 0) == 0) input = line.substr(2);
+      if (line.rfind("= bids ", 0) == 0 || line.rfind("= asks ", 0) == 0) input = line.substr(7);
+      LLVMFuzzerTestOneInput(reinterpret_cast<const std::uint8_t*>(input.data()), input.size());
+    }
   }
-  std::cout << "ran " << args.size() << " files\n";
+  std::cout << "ran " << inputs << " inputs\n";
   return 0;
 }
