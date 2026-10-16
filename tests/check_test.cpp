@@ -24,10 +24,11 @@ struct RunOptions {
   std::uint64_t seed;
   FlowOptions flow;
   int commands;
+  int state_every = 25;  // how often check_book runs; compare() runs ten times less often
 };
 
 // Runs a random stream through the reference model with every check on: the audit after every command, the state
-// checks every 25 commands, and the audit against the book every 250 and at the end.
+// checks every `state_every` commands, and the audit against the book every 10 times that and at the end.
 void run_checked(const RunOptions& run) {
   RandomFlow flow(run.seed, run.flow);
   ReferenceBook book;
@@ -40,10 +41,10 @@ void run_checked(const RunOptions& run) {
     audit.record(command, events);
     ASSERT_TRUE(audit.ok()) << "seed " << run.seed << "\n" << joined(audit.problems());
     // Braced: GoogleTest's assertions expand to an if-else, which GCC's -Wdangling-else flags under a bare if.
-    if (i % 25 == 0) {
+    if (i % run.state_every == 0) {
       ASSERT_EQ(joined(check_book(book)), "") << "seed " << run.seed << ", command " << i;
     }
-    if (i % 250 == 0) audit.compare(book);
+    if (i % (run.state_every * 10) == 0) audit.compare(book);
   }
   audit.compare(book);
   EXPECT_TRUE(audit.ok()) << joined(audit.problems());
@@ -56,7 +57,30 @@ TEST(Invariants, HoldOnLongRandomRuns) {
 
 TEST(Invariants, HoldWhenFewPricesMakeLongQueues) {
   // Three ticks of range: most orders queue at a handful of prices, so time priority decides nearly every trade.
-  run_checked({21, FlowOptions{.price_range = 3, .max_quantity = 20, .target_resting = 200}, 25'000});
+  // Every check runs after every command here.
+  run_checked({21, FlowOptions{.price_range = 3, .max_quantity = 20, .target_resting = 200}, 25'000, 1});
+}
+
+TEST(Invariants, TheReferenceModelsEventsAndBookAreTheSameOnEveryPlatform) {
+  // I7, recorded from this implementation: CI runs this with GCC and Clang on Linux and Apple Clang on macOS, in
+  // Debug and Release and under the sanitizers, so they must all produce exactly these events and this book.
+  RandomFlow flow(1, FlowOptions{.target_resting = 300});
+  ReferenceBook book;
+  std::vector<Event> events;
+  std::uint64_t hash = 0xcbf29ce484222325ULL;  // FNV-1a over every event's line, then each side's orders
+  const auto mix = [&hash](const std::string& line) {
+    for (const char c : line + "\n") {
+      hash ^= static_cast<unsigned char>(c);
+      hash *= 0x100000001b3ULL;
+    }
+  };
+  for (int i = 0; i < 50'000; ++i) {
+    events.clear();
+    book.apply(flow.next(), events);
+    for (const Event& event : events) mix(format(event));
+  }
+  for (const Side side : {Side::Buy, Side::Sell}) mix(describe(book.orders(side)));
+  EXPECT_EQ(hash, 0x9e240c9dcbca21cdULL);
 }
 
 TEST(Invariants, HoldWithLargeQuantitiesAndANearlyEmptyBook) {

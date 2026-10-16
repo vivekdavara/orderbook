@@ -58,25 +58,35 @@ TEST(RandomFlow, EveryCommandHasATextFormThatParsesBack) {
 }
 
 TEST(RandomFlow, MixesCommandsAsDocumented) {
+  // Below the target number of cancel candidates: 60 limit, 10 IOC, 5 market and 25 cancels in 100; at or above it,
+  // 35 limit and 50 cancels. Which applies is known before each command from cancel_candidates().
   RandomFlow flow(11);
-  std::array<int, 3> types{};  // limit, ioc, market
-  int cancels = 0;
-  constexpr int kCount = 200'000;
-  for (int i = 0; i < kCount; ++i) {
+  struct Mix {
+    int commands = 0, limit = 0, ioc = 0, market = 0, cancel = 0;
+  };
+  Mix below, above;
+  for (int i = 0; i < 400'000; ++i) {
+    Mix& mix = flow.cancel_candidates() < FlowOptions{}.target_resting ? below : above;
     const Command command = flow.next();
+    ++mix.commands;
     if (const auto* order = std::get_if<NewOrder>(&command)) {
-      ++types[static_cast<std::size_t>(order->type)];
+      ++(order->type == OrderType::Limit ? mix.limit : order->type == OrderType::Market ? mix.market : mix.ioc);
     } else {
-      ++cancels;
+      ++mix.cancel;
     }
   }
-  // IOC and market orders are a fixed 10% and 5%; limits and cancels share the rest, about evenly once the stream
-  // is past its target. Each bound is several standard deviations wide.
-  EXPECT_NEAR(types[1], kCount / 10, kCount / 100);
-  EXPECT_NEAR(types[2], kCount / 20, kCount / 100);
-  EXPECT_NEAR(types[0] + cancels, kCount * 85 / 100, kCount / 100);
-  EXPECT_GT(cancels, kCount / 4);
-  EXPECT_GT(types[0], kCount / 4);
+  const auto share = [](int part, int whole) { return 100.0 * part / whole; };
+  ASSERT_GT(below.commands, 50'000);
+  ASSERT_GT(above.commands, 50'000);
+  // Each bound is several standard deviations wide; resent orders (about 0.2% of commands) count as new orders.
+  EXPECT_NEAR(share(below.limit, below.commands), 60, 1);
+  EXPECT_NEAR(share(below.cancel, below.commands), 25, 1);
+  EXPECT_NEAR(share(above.limit, above.commands), 35, 1);
+  EXPECT_NEAR(share(above.cancel, above.commands), 50, 1);
+  for (const Mix* mix : {&below, &above}) {
+    EXPECT_NEAR(share(mix->ioc, mix->commands), 10, 1);
+    EXPECT_NEAR(share(mix->market, mix->commands), 5, 1);
+  }
 }
 
 TEST(RandomFlow, ExercisesEveryEventAndEveryRejection) {
