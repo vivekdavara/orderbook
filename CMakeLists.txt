@@ -37,6 +37,12 @@ add_library(orderbook::testkit ALIAS orderbook_testkit)
 target_link_libraries(orderbook_testkit PUBLIC orderbook::orderbook)
 orderbook_set_warnings(orderbook_testkit)
 
+# The command-line tool over the test kit (tools/orderbook_cli.cpp), installed as `orderbook`.
+add_executable(orderbook_cli tools/orderbook_cli.cpp)
+set_target_properties(orderbook_cli PROPERTIES OUTPUT_NAME orderbook)
+target_link_libraries(orderbook_cli PRIVATE orderbook::testkit)
+orderbook_set_warnings(orderbook_cli)
+
 if(ORDERBOOK_BUILD_TESTS OR ORDERBOOK_BUILD_BENCHMARKS)
   include(cmake/Dependencies.cmake)
 endif()

@@ -1,0 +1,6 @@
+# Deliberately wrong: a buy at 105 trades at the maker's price, 100, not 105.
+> new 1 sell limit 10 @ 100
+accepted 1
+> new 2 buy limit 4 @ 105
+accepted 2
+trade 2 1 4 @ 105
