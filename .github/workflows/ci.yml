@@ -1,0 +1,62 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux, GCC 14
+            os: ubuntu-24.04
+            cxx: g++-14
+          - name: Linux, Clang 18
+            os: ubuntu-24.04
+            cxx: clang++-18
+          - name: macOS, Apple Clang
+            os: macos-15
+            cxx: clang++
+    env:
+      CXX: ${{ matrix.cxx }}
+      HOMEBREW_NO_AUTO_UPDATE: 1
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install Ninja
+        run: |
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            sudo apt-get update -q && sudo apt-get install -y -q ninja-build
+          else
+            brew install ninja
+          fi
+          "$CXX" --version
+      - name: Debug build, warnings as errors
+        run: |
+          cmake --preset dev
+          cmake --build --preset dev -j 4
+      - name: Test (Debug)
+        run: ctest --preset dev -j 4
+      - name: Release build
+        run: |
+          cmake --preset release
+          cmake --build --preset release -j 4
+      - name: Test (Release)
+        run: ctest --preset release -j 4
+
+  sanitizers:
+    name: Linux, Clang 18, ASan + UBSan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      CXX: clang++-18
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install Ninja
+        run: sudo apt-get update -q && sudo apt-get install -y -q ninja-build
+      - name: Build and test under the sanitizers
+        run: make asan JOBS=4
