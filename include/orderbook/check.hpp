@@ -8,7 +8,7 @@
 // validation and its order, I2 (each trade is with the best order, by price and then arrival), I3 (price limits,
 // the maker's price), I4 (conservation: fills are the smaller remaining quantity, cancels report what was left),
 // and the order of the events. It finds the best order by scanning its record, so it is O(n) per trade, like the
-// reference model, but shares no code with it.
+// reference model, but shares none of its matching code (only the vocabulary types, their bounds and opposite()).
 
 #include <cstddef>
 #include <cstdint>

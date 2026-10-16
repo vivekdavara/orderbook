@@ -52,7 +52,8 @@ A new order is checked in this order, and the first rule it breaks is the reason
 
 1. `id-not-increasing`: its id is not greater than the last accepted id (ids start at 1).
 2. `invalid-quantity`: its quantity is outside 1 to 10^9 lots.
-3. `invalid-price`: a limit or IOC order's price is outside 1 to 10^9 ticks, or a market order has a price at all.
+3. `invalid-price`: a limit or IOC order's price is outside 1 to 10^9 ticks, or a market order has a price other
+   than 0 (0 is no price).
 
 A cancel is rejected with `unknown-order` if no resting order has its id: it never existed, it was rejected, it was
 fully filled, it was cancelled already, or it was an IOC or market order (they never rest).
@@ -123,7 +124,8 @@ The tests check each of these, on the reference model now and on the engine from
   price; no price level is empty; no id rests twice.
 - **I6, rejections change nothing** (Validation).
 - **I7, determinism.** The same commands give the same events and the same book, on Linux and macOS, with GCC and
-  Clang, in Debug and Release.
+  Clang, in Debug and Release. Tested by pinned hashes of a random stream and of the reference model's events and
+  book on it, which every CI job must reproduce.
 
 ## The text format
 
@@ -142,10 +144,12 @@ trade <taker> <maker> <quantity> @ <price>
 cancelled <id> <remaining> <requested|unfilled>
 ```
 
-Every command the C++ types can hold has a text form that parses back to the same command, invalid ones included:
-quantities and prices may be zero or negative (`new 4 buy limit 0 @ 100` is a valid line and an invalid order),
-and a market order may carry `@ <price>`, which validation then rejects. Words are lower case and separated by
-spaces or tabs; the formatter writes single spaces.
+Every command whose side and type are named values has a text form that parses back to the same command, invalid
+ones included: quantities and prices may be zero or negative (`new 4 buy limit 0 @ 100` is a valid line and an
+invalid order), and a market order may carry a nonzero `@ <price>`, which validation then rejects (`@ 0` is the same
+command as no price). Words are lower case and separated by spaces or tabs; the formatter writes single spaces. The
+book doesn't check that a side or type is a named value: commands come from the parser, which makes only those, or
+(day 4) from the gateway, which has to check its own input.
 
 A **scenario file** is a script with its expected results:
 
@@ -162,7 +166,8 @@ accepted 1
 ```
 
 A command's expected events are every event line up to the next command, so a command with no event lines must
-produce no events. Depth checks are optional. The runner reports the file's line number of every mismatch.
+produce no events. Depth checks are optional. The runner stops at the first step that doesn't match and reports what
+was expected, what happened, and the line.
 
 ## The reference model
 
@@ -212,12 +217,24 @@ replay and L2 snapshots.
 - **Unit tests** for the types, the text format and each component.
 - **Scenario files** (`tests/scenarios/*.txt`), one or more per rule above, written by hand from this document, not
   recorded from the code. They run against the reference model now and the engine from day 2.
-- **Invariant checks** (I1, I4, I5) after every command of long random runs.
+- **The Audit** (`check.hpp`) follows every command of long random runs and checks its events against its own record
+  of the resting orders: validation and the order of its checks, I2, I3, I4, I6 and the order of the events. It
+  shares none of the reference model's matching code (only the vocabulary types, their bounds and `opposite`), so it
+  checks the reference model too. `check_book` (I1, I5) and the Audit's comparison of its record with the book run
+  after every command in one 25,000-command run and in the book fuzzer, and every 25 and 250 commands in the others.
+- **Random streams** come from a seeded generator with its own integer distribution, because the standard library's
+  distributions are implementation-defined: `std::uniform_int_distribution` gives different numbers with libstdc++
+  (Linux) and libc++ (macOS), and the same seed must give the same stream on both CI runners. A spoiled order breaks
+  one rule or two, and is sometimes sent again at once, fixed, under the same id, so random runs exercise the order
+  of the checks and I6.
 - **Differential tests** (day 2): random command streams into the reference and the engine, comparing every event.
-  The random streams come from a seeded generator with its own integer distribution, because the standard
-  library's distributions are implementation-defined: `std::uniform_int_distribution` gives different numbers with
-  libstdc++ (Linux) and libc++ (macOS), and the same seed must give the same stream on both CI runners.
+  A disagreement is shrunk by `minimize` (ddmin) to the few commands that still show it.
+- **Fuzzing.** CI runs two libFuzzer targets for 60 s each under the sanitizers: the text format (seeded with the
+  scenario files) and the book under the Audit. Elsewhere CTest runs them on fixed inputs.
 - **Sanitizers.** CI runs every test under AddressSanitizer and UndefinedBehaviorSanitizer.
+- **Coverage.** `make coverage` reports the tests' line and branch coverage of `src/` and `include/`.
+- **GCC before pushing.** `make gcc-check` compiles the project's files with Homebrew's GCC, since CI's GCC job flags
+  warnings Clang doesn't give.
 - **Benchmarks** (Google Benchmark): commands per second for the reference model now, as the baseline the engine
   has to beat; latency percentiles from day 3.
 

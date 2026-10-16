@@ -8,6 +8,7 @@
 #include <fstream>
 #include <sstream>
 #include <string>
+#include <system_error>
 #include <vector>
 
 #include "orderbook/reference_book.hpp"
@@ -20,8 +21,10 @@ namespace fs = std::filesystem;
 // The scenario files' names, sorted.
 std::vector<std::string> scenario_files() {
   std::vector<std::string> files;
-  for (const fs::directory_entry& entry : fs::directory_iterator(ORDERBOOK_SCENARIO_DIR)) {
-    if (entry.path().extension() == ".txt") files.push_back(entry.path().filename().string());
+  // A missing directory gives no files (and TheFilesAreThere fails) rather than an exception while tests register.
+  std::error_code error;
+  for (fs::directory_iterator it(ORDERBOOK_SCENARIO_DIR, error), end; !error && it != end; it.increment(error)) {
+    if (it->path().extension() == ".txt") files.push_back(it->path().filename().string());
   }
   std::sort(files.begin(), files.end());
   return files;

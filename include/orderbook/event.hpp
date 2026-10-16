@@ -1,7 +1,7 @@
 #pragma once
 
 // What the book answers (DESIGN.md, "Events"). For each command, in order: a rejection; or an acceptance, the trades,
-// and for an IOC or market order that didn't fill, its cancellation; or, for a cancel, the order's cancellation.
+// and for an IOC or market order that didn't fully fill, its cancellation; or, for a cancel, the order's cancellation.
 
 #include <cstdint>
 #include <variant>

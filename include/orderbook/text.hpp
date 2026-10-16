@@ -1,8 +1,8 @@
 #pragma once
 
 // The one-line text form of commands, events and depth (DESIGN.md, "The text format"), used by scenario files, the
-// CLI and failing tests. Every command the types can hold, invalid ones included, formats to a line that parses
-// back to the same command.
+// CLI and failing tests. Every command whose side and type are named values, invalid ones included, formats to a
+// line that parses back to the same command.
 
 #include <iosfwd>
 #include <optional>

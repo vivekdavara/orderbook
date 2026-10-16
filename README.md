@@ -21,7 +21,7 @@ to the best order by price and then arrival, at the right price, for the right q
    is a vector in arrival order, and the best order is found by scanning it. It is slow on purpose. It is the
    oracle the engine is compared with, event for event, on millions of random commands.
 3. **Independent checks** of any book: `Audit` follows a run and checks every event against its own record of the
-   orders, and `check_book` checks a book's state. They share no code with the reference model, so they check the
+   orders, and `check_book` checks a book's state. They share none of the reference model's matching code, so they check the
    oracle too.
 4. **Determinism** everywhere: the same commands give the same events on every platform, and the same seed gives
    the same random commands with libstdc++ and libc++, so a failure in CI can be replayed on this Mac.
@@ -104,7 +104,7 @@ configure time as release tarballs pinned by SHA-256.
 make check
 ```
 
-Configures the `dev` preset (Debug, warnings as errors) into `build/dev`, builds everything, and runs the 78 tests.
+Configures the `dev` preset (Debug, warnings as errors) into `build/dev`, builds everything, and runs the 92 tests.
 `make asan` runs them under AddressSanitizer and UndefinedBehaviorSanitizer; `make bench` builds the `release`
 preset (-O3) and runs the benchmarks; `make coverage` reports the tests' line and branch coverage (Clang only).
 
@@ -164,7 +164,7 @@ core's.
 
 ## Tests
 
-78 tests (`make check`), each a separate CTest test, green on all four CI jobs.
+92 tests (`make check`), each a separate CTest test; CI runs them on four jobs and fuzzes on a fifth.
 
 `make coverage` (Clang source-based coverage, at the commit that added it): the GoogleTest suite runs 98.6% of the
 lines in `src/` and `include/` (687 of 697), 96.4% of branches (426 of 442) and 97.2% of regions. The 10 lines it
@@ -177,10 +177,34 @@ assertion fails; three), and three defaulted `==` operators the tests never call
 | `text_test.cpp` | Each command and event's exact text; strict parsing (20 malformed lines, each with its reason); 20,000 random commands, edge values included, parse back to themselves |
 | `reference_book_test.cpp` | The reference model's queries, the order of the validation checks, a rejection changing nothing, which orders can be cancelled |
 | `scenario_test.cpp` + `scenarios/*.txt` | Fourteen hand-written scripts, one or more per rule; the parser's and runner's error reports, with line numbers |
-| `random_flow_test.cpp` | Same seed same stream; a pinned hash of seed 1's first 100,000 commands, so Linux and macOS must agree; the documented mix; every event kind and reject reason occurs |
-| `check_test.cpp` | The reference model passes `Audit` and `check_book` over 160,000 random commands: four seeds of the default mix, and mixes with long queues at three prices, quantities up to 10^9 on a near-empty book, and 30% invalid orders; each check is shown to fail on events or a state that break its rule |
+| `random_flow_test.cpp` | Same seed same stream; a pinned hash of seed 1's first 100,000 commands, so Linux and macOS must agree; the documented mix on each side of the target; options it can't honour are refused; near either price bound every order sent valid is accepted; rejected orders resent under the same id are accepted, and some rejections break two rules |
+| `check_test.cpp` | The reference model passes `Audit` and `check_book` over 160,000 random commands: four seeds of the default mix, and mixes with long queues at three prices (every check after every command), quantities up to 10^9 on a near-empty book, and 30% invalid orders; each check is shown to fail on events or a state that break its rule; a pinned hash of the reference model's events and book (I7) |
+| `review/*.cpp` | The day-1 review's reproductions, kept as regression tests: 0-lot trades after a fill, and a stream starting near a price bound |
 | `minimize_test.cpp` | The minimizer keeps exactly what a failure needs, in order, and is 1-minimal; random runs that catch two deliberately broken books shrink to 3 commands and to 1 |
 | CLI tests (`tests/CMakeLists.txt`) | `check` passes the scenarios and reports a wrong one with its line; a 2,000-command transcript passes its own check |
+
+## Review of day 1
+
+One background agent reviewed the code at `ec245ab`, as a correctness review in its own worktree, in 19 minutes. It
+saved each bug it reproduced as a failing test (now in `tests/review/`), and I reproduced each one here before fixing
+it:
+
+1. **The Audit accepted 0-lot trades after the taker was filled.** Once filled, each further trade expected a fill of
+   `min(0, ...)`, so any number of `trade 3 2 0 @ 101` passed. Fixed in `7ddd342`.
+2. **RandomFlow sent invalid orders as valid near a price bound.** It clamped the mid only once the mid first moved,
+   so from start price 10 it sent `new 2 buy limit 51 @ -22` as valid. It also accepted options it couldn't honour,
+   one of them undefined behaviour in `std::clamp`. Fixed in `a6d6edf`.
+3. **GCC 15 reports a false null dereference** in `Price`'s defaulted comparison, in an optimised build; GCC 14 had
+   reported one inside libstdc++ earlier the same day. `-Wnull-dereference` is now Clang-only (`2429960`), and
+   `make gcc-check` compiles the project with Homebrew's GCC 15 before a push.
+
+Of its 67 mutations, four changed nothing any test noticed: the Audit's limit check and its quantity-before-price
+order, `check_book`'s best-price check, and RandomFlow's mid clamp. Each now has a test that fails without it
+(`6b691c0`, `a6d6edf`), checked by mutating each again here. It also pointed out that random runs never tested the
+order of the validation checks or I6, which they now do (`a3df324`), and that I7 had no test (`9427457`). Seven claims
+in the docs said more than the code did, among them that every invariant check ran after every command; they are
+corrected. It confirmed the reference model against DESIGN.md rule by rule (all 19 of its mutations were caught), and
+all eleven scenario files of the time step by step, by hand.
 
 ## Design decisions
 
