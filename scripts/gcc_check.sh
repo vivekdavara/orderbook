@@ -1,8 +1,9 @@
 #!/bin/sh
 # Compiles this project's own sources with GCC, in Debug and Release with warnings as errors, to catch GCC-only
-# warnings before CI's GCC job does. CI builds with GCC 14 on Linux; this Mac has Homebrew's g++-15. Nothing links
-# here: GoogleTest and Google Benchmark don't compile with GCC against the macOS SDK, so failures in them (_deps/)
-# are ignored, and the script fails only if a file of this project fails to compile.
+# warnings before CI's GCC job does. CI builds with GCC 14 on Linux; this Mac has Homebrew's g++-15. The tests and
+# benchmarks don't link here: GoogleTest and Google Benchmark don't compile with GCC against the macOS SDK, so failures
+# in them (_deps/) are ignored (the CLI and the fuzz targets, which don't need them, do link), and the script fails only
+# if a file of this project fails to compile.
 #
 #   scripts/gcc_check.sh            (or: make gcc-check)
 #   GXX=g++-14 scripts/gcc_check.sh

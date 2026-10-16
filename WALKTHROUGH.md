@@ -94,7 +94,7 @@ book holds exactly the orders the events imply, in priority order.
 **How do you know the checks can fail?**
 Each check has a test that feeds it something wrong and expects it to complain: `Audit.CatchesEachBrokenRule` gives
 it nine event streams that each break one rule (a trade with the second order in a queue, at the wrong price, for
-the wrong size, a taker that stops early...), and `CheckBook.CatchesEachKindOfBadState` gives `check_book` nine bad
+the wrong size, a taker that stops early...), and `CheckBook.CatchesEachKindOfBadState` gives `check_book` ten bad
 states. The CLI test for a wrong scenario file matches the report's text, so a crash wouldn't count as a pass.
 
 **Why not use `std::uniform_int_distribution` for random commands?**
@@ -124,7 +124,8 @@ two tests are kept in `tests/review/`. The reference model never emitted such ev
 Mutation checks: change one mechanism (delete a check, swap two comparisons) and see whether any test fails. The
 review made 67 such changes; four went unnoticed (the Audit's limit check and its quantity-before-price order,
 `check_book`'s best-price check, RandomFlow's mid clamp), and each now has a test that fails without it. A
-reference model whose rejections use up the id now fails 13 tests, among them all four random invariant runs, because
+reference model whose rejections use up the id now fails 17 tests (the second review's count at `aa0599b`: 14
+GoogleTest tests, two CLI tests and the book fuzzer's run), among them all four random invariant runs, because
 the random stream sends some rejected orders again under the same id. One trap: a mutant that doesn't compile tests
 nothing. Deleting the best-price check left unused variables, `-Werror` stopped the build, and the old binary ran
 instead; the rerun disabled the condition.

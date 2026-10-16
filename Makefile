@@ -24,8 +24,9 @@ bench:
 
 # Line, function, region and branch coverage of the library and test kit (src/ and include/) by the GoogleTest suite,
 # with Clang's source-based coverage. Each test runs as its own process and writes its own profile; they are merged
-# first. (The CLI's tests add nothing in src/ and include/ to it, and their binary's profile doesn't match the test
-# binary's for a few library functions, which llvm-cov warns about, so the report reads the test binary alone.)
+# first, so what the CLI tests and fuzz runs reach in the library counts too. The report reads the test binary
+# alone: with the CLI's binary added, llvm-cov warned that 5 functions' profile data didn't match, and the totals were
+# the same.
 LLVM_COV ?= $(shell xcrun --find llvm-cov 2>/dev/null || command -v llvm-cov)
 LLVM_PROFDATA ?= $(shell xcrun --find llvm-profdata 2>/dev/null || command -v llvm-profdata)
 coverage:

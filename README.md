@@ -105,7 +105,7 @@ configure time as release tarballs pinned by SHA-256.
 make check
 ```
 
-Configures the `dev` preset (Debug, warnings as errors) into `build/dev`, builds everything, and runs the 92 tests.
+Configures the `dev` preset (Debug, warnings as errors) into `build/dev`, builds everything, and runs the 104 tests.
 `make asan` runs them under AddressSanitizer and UndefinedBehaviorSanitizer; `make bench` builds the `release`
 preset (-O3) and runs the benchmarks; `make coverage` reports the tests' line and branch coverage (Clang only);
 `make gcc-check` compiles the project's files with GCC 15, Debug and Release, warnings as errors.
@@ -119,8 +119,8 @@ build/dev/orderbook audit 1 100000 --target 500   # a random run with every inva
 ```
 
 `run`'s transcript is itself a scenario file, so a failing random case can be saved, cut down by hand, and kept as a
-test. The last command printed `commands 100000, accepted 57523, rejected 17942, trades 27686, cancelled 29213;
-resting at the end 331, at most 344` in 0.89 s (Debug build, at `dc9ea98`); most of the rejections are cancels of
+test. The last command printed `commands 100000, accepted 57516, rejected 17972, trades 27713, cancelled 29176;
+resting at the end 325, at most 342` in 0.87 s (Debug build, at `cdaf411`); most of the rejections are cancels of
 orders that had already filled.
 
 ## When a random run fails
@@ -128,7 +128,8 @@ orders that had already filled.
 `minimize` (`include/orderbook/minimize.hpp`, ddmin) shrinks a failing stream to commands that still fail, each of
 which is needed. In `minimize_test.cpp` a deliberately broken book reports a tick too high for any trade with a maker
 that has traded before; the Audit catches it in a 3,000-command random run, and 32 replays later this is what is left
-(printed by a throwaway program with the test's broken book, at `dc9ea98`; the ids are the random stream's):
+(printed by a throwaway program with the test's broken book, at `dc9ea98` and again, the same, at `cdaf411`; the ids
+are the random stream's):
 
 ```
 > new 1754 sell limit 76 @ 9943
@@ -170,13 +171,15 @@ core's.
 
 ## Tests
 
-92 tests (`make check`), each a separate CTest test; CI runs them on four jobs and fuzzes on a fifth.
+104 tests (`make check`), each a separate CTest test; CI runs them on four jobs and fuzzes on a fifth.
 
-`make coverage` (Clang source-based coverage, at `a900bb9`): the GoogleTest suite runs 98.7% of the lines in `src/`
-and `include/` (741 of 751), 97.3% of branches (469 of 482) and 97.8% of regions. The 10 lines it doesn't run are the
-`"?"` fallbacks for enum values outside their names (four), `PrintTo` (called only when an assertion fails; three),
-and three defaulted `==` operators the tests never call directly. (At `7e6a317`, before the review's fixes and the
-minimizer: 687 of 697 lines, 426 of 442 branches.)
+`make coverage` (Clang source-based coverage of `src/` and `include/` by everything CTest runs: the GoogleTest suite,
+and the CLI tests and fuzz runs, whose profiles are merged in), at `cdaf411`: 98.7% of lines (746 of 756), 97.3% of
+branches (475 of 488), 97.8% of regions. The 10 lines nothing runs are the `"?"` fallbacks for enum values outside
+their names (four), `PrintTo` (called only when an assertion fails; three), and three defaulted `==` operators the
+tests never call directly. (At `7e6a317`, before the reviews and the minimizer: 687 of 697 lines, 426 of 442
+branches. At `a900bb9`, 741 of 751 and 469 of 482; the second review found that one of those branches,
+`scenario.cpp:53`'s, is reached only by a fuzz run.)
 
 | File | What it checks |
 |---|---|
@@ -184,12 +187,12 @@ minimizer: 687 of 697 lines, 426 of 442 branches.)
 | `text_test.cpp` | Each command and event's exact text; strict parsing (20 malformed lines, each with its reason); 20,000 random commands, edge values included, parse back to themselves |
 | `reference_book_test.cpp` | The reference model's queries, the order of the validation checks, a rejection changing nothing, which orders can be cancelled |
 | `scenario_test.cpp` + `scenarios/*.txt` | Fourteen hand-written scripts, one or more per rule; the parser's and runner's error reports, with line numbers |
-| `random_flow_test.cpp` | Same seed same stream; a pinned hash of seed 1's first 100,000 commands, so Linux and macOS must agree; the documented mix on each side of the target; options it can't honour are refused; near either price bound every order sent valid is accepted; rejected orders resent under the same id are accepted, and some rejections break two rules |
+| `random_flow_test.cpp` | Same seed same stream; a pinned hash of seed 1's first 100,000 commands, so Linux and macOS must agree; the documented mix on each side of the target; options it can't honour are refused; near either price bound every order sent valid is accepted; rejected orders resent under the same id are accepted, and some rejections break two rules; in a fully spoiled stream only resends are accepted, about half come back, and resent limit orders can be cancelled |
 | `check_test.cpp` | The reference model passes `Audit` and `check_book` over 160,000 random commands: four seeds of the default mix, and mixes with long queues at three prices (every check after every command), quantities up to 10^9 on a near-empty book, and 30% invalid orders; each check is shown to fail on events or a state that break its rule; a pinned hash of the reference model's events and book (I7) |
-| `review/*.cpp` | The day-1 review's reproductions, kept as regression tests: 0-lot trades after a fill, and a stream starting near a price bound |
-| `minimize_test.cpp` | The minimizer keeps exactly what a failure needs, in order, and is 1-minimal; random runs that catch two deliberately broken books shrink to 3 commands and to 1 |
-| CLI tests (`tests/CMakeLists.txt`) | `check` passes the scenarios and reports a wrong one with its line and the actual events; a 2,000-command transcript passes its own check; `audit` passes 20,000 commands; options out of range and bad arguments are reported |
-| Fuzz targets (`fuzz/`, in CTest) | Both on 2,000 seeded random inputs each, the text target on the scenario files too. CI's libFuzzer job runs each for 60 s instead: at `a900bb9`, 1,351,472 text inputs and 232,863 book inputs, no findings |
+| `review/*.cpp`, `review2/` | The two day-1 reviews' reproductions, kept as regression tests: 0-lot trades after a fill; a stream starting near a price bound; double spoils that broke one rule; an empty transcript `check` rejected |
+| `minimize_test.cpp` | The minimizer keeps exactly what a failure needs, in order, and is 1-minimal; 1,000 commands shrink in under 100 replays (56); random runs that catch two deliberately broken books shrink to 3 commands and to 1 |
+| CLI tests (`tests/CMakeLists.txt`) | `check` passes the scenarios and reports a wrong one with its line and the actual events; a 2,000-command transcript passes its own check, and so does an empty one; `audit` passes 20,000 commands; options out of range and bad arguments are reported; each exit code exactly (0, 1, 2) |
+| Fuzz targets (`fuzz/`, in CTest) | Both on 2,000 seeded random inputs each; the text target on the scenario files whole and on each of their 405 lines, so its round-trip checks run. CI's libFuzzer job runs each for 60 s instead: at `a900bb9`, 1,351,472 text inputs and 232,863 book inputs, no findings |
 
 ## Review of day 1
 
@@ -213,6 +216,15 @@ order of the validation checks or I6, which they now do (`a3df324`), and that I7
 in the docs said more than the code did, among them that every invariant check ran after every command; they are
 corrected. It confirmed the reference model against DESIGN.md rule by rule (all 19 of its mutations were caught), and
 all eleven scenario files of the time step by step, by hand.
+
+A second agent then reviewed what the first hadn't seen (the CLI, the minimizer, the fuzz targets, the GCC script,
+RandomFlow's double spoils and resends) at `aa0599b`, in 13 minutes, and found two more bugs, both reproduced here and
+fixed: one double spoil in four didn't break two rules but overwrote the same field (18.2% of spoiled orders broke two
+rules, not 25%; `d843fcf`), and `run` with no commands printed depth lines that `check` rejects (`cd389bd`). It also
+found that the CLI tests' message matching made CTest ignore exit codes (now tested exactly, `1c3149e`), that the
+text fuzzer's round-trip checks were never reached in CTest (`c00291c`), that `audit` ignored problems found mid-run
+(`cd389bd`), that several generator mutants were caught only by the pinned hashes (now by properties, `2c2baee`), and
+that nothing bounded the minimizer's replays (`cdaf411`); its docs corrections are in.
 
 ## Design decisions
 
