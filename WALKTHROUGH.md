@@ -156,8 +156,11 @@ Four GCC-only warnings, each an error under `-Werror`, in four red runs of the G
 - A "potential null pointer dereference" inside libstdc++'s `streambuf`, in the release build only, inlined from a
   `std::istreambuf_iterator` read in the CLI (`-Wnull-dereference`). It's a false positive; the tool now reads files
   with `out << in.rdbuf()`, as the tests already did, so the warning stays on.
-This Mac has no GCC, so CI is the only place these show up. The commits that broke the GCC job and the ones that
-fixed it are in the history; CI has been green on all four jobs since `f8e280e`.
+CI's GCC 14 job is the only place the tests run under GCC. Later the same day I found Homebrew's GCC 15 on this Mac;
+`make gcc-check` (`scripts/gcc_check.sh`) now compiles every file of the project with it, Debug and Release, before a
+push. It can't run the tests (GoogleTest doesn't build with GCC against the macOS SDK), but it catches these
+warnings. The commits that broke the GCC job and the ones that fixed it are in the history; CI has been green on all
+four jobs since `f8e280e`.
 
 **Why pin the dependencies and the runners?**
 So a commit always builds the same way. GoogleTest and Google Benchmark come from release tarballs checked against

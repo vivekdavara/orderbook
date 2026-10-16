@@ -188,7 +188,8 @@ minimizer: 687 of 697 lines, 426 of 442 branches.)
 | `check_test.cpp` | The reference model passes `Audit` and `check_book` over 160,000 random commands: four seeds of the default mix, and mixes with long queues at three prices (every check after every command), quantities up to 10^9 on a near-empty book, and 30% invalid orders; each check is shown to fail on events or a state that break its rule; a pinned hash of the reference model's events and book (I7) |
 | `review/*.cpp` | The day-1 review's reproductions, kept as regression tests: 0-lot trades after a fill, and a stream starting near a price bound |
 | `minimize_test.cpp` | The minimizer keeps exactly what a failure needs, in order, and is 1-minimal; random runs that catch two deliberately broken books shrink to 3 commands and to 1 |
-| CLI tests (`tests/CMakeLists.txt`) | `check` passes the scenarios and reports a wrong one with its line; a 2,000-command transcript passes its own check |
+| CLI tests (`tests/CMakeLists.txt`) | `check` passes the scenarios and reports a wrong one with its line and the actual events; a 2,000-command transcript passes its own check; `audit` passes 20,000 commands; options out of range and bad arguments are reported |
+| Fuzz targets (`fuzz/`, in CTest) | Both on 2,000 seeded random inputs each, the text target on the scenario files too. CI's libFuzzer job runs each for 60 s instead: at `a900bb9`, 1,351,472 text inputs and 232,863 book inputs, no findings |
 
 ## Review of day 1
 
@@ -234,8 +235,10 @@ all eleven scenario files of the time step by step, by hand.
   change underneath a commit. GitHub moves `ubuntu-latest` to Ubuntu 26 from October 19.
 - **Warnings as errors on three compilers.** On day 1 GCC caught four things Clang doesn't warn about: a shadowed
   parameter in a GoogleTest macro, an assertion under a bare `if`, a cast that is a no-op only on Linux (where
-  `int64_t` is `long`), and a false "null dereference" inside libstdc++ at -O3. This Mac has no GCC, so CI is the
-  only place they can show up; WALKTHROUGH.md has the details.
+  `int64_t` is `long`), and a false "null dereference" inside libstdc++ at -O3. CI's GCC 14 job is the only place
+  the tests run under GCC; `make gcc-check` now compiles the project with Homebrew's GCC 15 here before a push
+  (GoogleTest doesn't build with it against the macOS SDK, so it compiles but runs nothing). WALKTHROUGH.md has the
+  details.
 
 ## Limitations
 
