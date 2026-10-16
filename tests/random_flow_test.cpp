@@ -203,7 +203,8 @@ TEST(RandomFlow, InAFullySpoiledStreamOnlyResendsAreAccepted) {
   ReferenceBook book;
   std::vector<Event> events;
   std::optional<OrderId> resendable;  // the previous command's id, if it was a new order rejected for a non-id reason
-  int rejections = 0, resent = 0, cancelled = 0;
+  OrderId last_accepted{0};
+  int rejections = 0, resent = 0, cancelled = 0, id_spoils = 0;
   for (int i = 0; i < 100'000; ++i) {
     const Command command = flow.next();
     events.clear();
@@ -217,12 +218,18 @@ TEST(RandomFlow, InAFullySpoiledStreamOnlyResendsAreAccepted) {
     const NewOrder& order = std::get<NewOrder>(command);
     if (std::holds_alternative<Accepted>(events.front())) {
       ASSERT_TRUE(previous && *previous == order.id) << "command " << i << ", accepted but not a resend: " << format(command);
+      last_accepted = order.id;
       ++resent;
     } else if (std::get<Rejected>(events.front()).reason != RejectReason::IdNotIncreasing) {
       resendable = order.id;
       ++rejections;
+    } else {
+      // An order spoiled in its id repeats the newest accepted id (0 before any), resends included.
+      ASSERT_EQ(order.id, last_accepted) << "command " << i << ": " << format(command);
+      ++id_spoils;
     }
   }
+  EXPECT_GT(id_spoils, 1'000);
   ASSERT_GT(rejections, 10'000);
   EXPECT_NEAR(100.0 * resent / rejections, 50.0, 2.0) << resent << " of " << rejections;
   EXPECT_GT(cancelled, 100);
