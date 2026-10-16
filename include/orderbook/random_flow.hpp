@@ -16,6 +16,9 @@
 
 namespace orderbook {
 
+// RandomFlow's constructor throws std::invalid_argument for a price_range outside 0 to (10^9 - 1) / 2, a
+// max_quantity outside 1 to 10^9, or an invalid_per_mille outside 0 to 1000. A start_price too near a price bound
+// for the range is moved in until every price the stream means to be valid is.
 struct FlowOptions {
   std::int64_t start_price = 10'000;  // the mid price the stream starts at, in ticks; it then wanders by a tick
   std::int64_t price_range = 50;      // limit and IOC prices fall within this many ticks of the mid
@@ -45,6 +48,8 @@ class RandomFlow {
   void spoil(NewOrder& order);
   CancelOrder cancel();
   void step_mid();
+  std::int64_t lowest_mid() const;
+  std::int64_t highest_mid() const;
 
   std::uint64_t state_;
   FlowOptions options_;

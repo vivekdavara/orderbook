@@ -6,6 +6,7 @@ add_executable(orderbook_tests
   random_flow_test.cpp
   reference_book_test.cpp
   review/audit_accepts_zero_quantity_trade_test.cpp
+  review/random_flow_unclamped_start_price_test.cpp
   scenario_test.cpp
   text_test.cpp
   types_test.cpp)
@@ -28,5 +29,8 @@ add_test(NAME cli.a_transcript_is_a_passing_scenario
   COMMAND sh -c "\"$1\" gen 7 2000 --target 50 | \"$1\" run > \"$2\" && \"$1\" check \"$2\"" sh
           $<TARGET_FILE:orderbook_cli> ${CMAKE_CURRENT_BINARY_DIR}/transcript.txt)
 add_test(NAME cli.audit_passes_a_random_stream COMMAND orderbook_cli audit 3 20000 --target 200)
+add_test(NAME cli.options_out_of_range_are_reported COMMAND orderbook_cli gen 1 10 --range 600000000)
+set_tests_properties(cli.options_out_of_range_are_reported PROPERTIES
+  PASS_REGULAR_EXPRESSION "orderbook: price_range must be 0 to 499999999, got 600000000")
 add_test(NAME cli.usage_is_printed_for_bad_arguments COMMAND orderbook_cli gen 1)
 set_tests_properties(cli.usage_is_printed_for_bad_arguments PROPERTIES PASS_REGULAR_EXPRESSION "usage: orderbook check")

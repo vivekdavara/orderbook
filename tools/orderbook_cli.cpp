@@ -18,6 +18,7 @@
 #include <iostream>
 #include <optional>
 #include <sstream>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <system_error>
@@ -213,7 +214,12 @@ int main(int argc, char** argv) {
   if (verb == "gen" || verb == "audit") {
     const auto flow_args = parse_flow_args(rest);
     if (!flow_args) return usage();
-    return verb == "gen" ? gen(*flow_args) : audit(*flow_args);
+    try {
+      return verb == "gen" ? gen(*flow_args) : audit(*flow_args);
+    } catch (const std::invalid_argument& error) {  // options RandomFlow can't honour
+      std::cerr << "orderbook: " << error.what() << "\n";
+      return kUsageError;
+    }
   }
   return usage();
 }

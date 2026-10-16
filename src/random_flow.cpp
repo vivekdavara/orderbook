@@ -1,11 +1,32 @@
 #include "orderbook/random_flow.hpp"
 
 #include <algorithm>
+#include <stdexcept>
+#include <string>
 
 namespace orderbook {
 
-RandomFlow::RandomFlow(std::uint64_t seed, FlowOptions options)
-    : state_(seed), options_(options), mid_(options.start_price) {}
+RandomFlow::RandomFlow(std::uint64_t seed, FlowOptions options) : state_(seed), options_(options) {
+  if (options.price_range < 0 || options.price_range > (kMaxPrice.ticks - kMinPrice.ticks) / 2) {
+    throw std::invalid_argument("price_range must be 0 to " + std::to_string((kMaxPrice.ticks - kMinPrice.ticks) / 2) +
+                                ", got " + std::to_string(options.price_range));
+  }
+  if (!valid_quantity(Quantity{options.max_quantity})) {
+    throw std::invalid_argument("max_quantity must be 1 to " + std::to_string(kMaxQuantity.lots) + ", got " +
+                                std::to_string(options.max_quantity));
+  }
+  if (options.invalid_per_mille < 0 || options.invalid_per_mille > 1000) {
+    throw std::invalid_argument("invalid_per_mille must be 0 to 1000, got " +
+                                std::to_string(options.invalid_per_mille));
+  }
+  // From the first command on, not only once the mid has first moved.
+  mid_ = std::clamp(options.start_price, lowest_mid(), highest_mid());
+}
+
+// Far enough from both price bounds that every price this stream means to be valid (the mid plus or minus up to
+// price_range) is.
+std::int64_t RandomFlow::lowest_mid() const { return kMinPrice.ticks + options_.price_range; }
+std::int64_t RandomFlow::highest_mid() const { return kMaxPrice.ticks - options_.price_range; }
 
 // SplitMix64 (Steele, Lea and Flood, 2014): a 64-bit state stepped by a constant and mixed. Small, fast, and passes
 // BigCrush, which is plenty for test inputs.
@@ -33,10 +54,7 @@ std::int64_t RandomFlow::between(std::int64_t lo, std::int64_t hi) {
 void RandomFlow::step_mid() {
   if (below(4) != 0) return;
   const std::int64_t step = between(-1, 1);
-  // Far enough from both price bounds that every price this stream means to be valid is.
-  const std::int64_t low = kMinPrice.ticks + options_.price_range;
-  const std::int64_t high = kMaxPrice.ticks - options_.price_range;
-  mid_ = std::clamp(mid_ + step, low, high);
+  mid_ = std::clamp(mid_ + step, lowest_mid(), highest_mid());
 }
 
 Command RandomFlow::next() {

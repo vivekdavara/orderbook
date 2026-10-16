@@ -4,6 +4,7 @@
 
 #include <array>
 #include <cstdint>
+#include <stdexcept>
 #include <string>
 #include <variant>
 #include <vector>
@@ -108,6 +109,42 @@ TEST(RandomFlow, ExercisesEveryEventAndEveryRejection) {
   }
   EXPECT_GT(largest, 100U);
   EXPECT_LE(largest, 260U);
+}
+
+TEST(RandomFlow, RefusesOptionsItCannotHonour) {
+  EXPECT_THROW(RandomFlow(1, FlowOptions{.price_range = -1}), std::invalid_argument);
+  EXPECT_THROW(RandomFlow(1, FlowOptions{.price_range = 500'000'000}), std::invalid_argument);
+  EXPECT_NO_THROW(RandomFlow(1, FlowOptions{.price_range = 499'999'999}));
+  EXPECT_THROW(RandomFlow(1, FlowOptions{.max_quantity = 0}), std::invalid_argument);
+  EXPECT_THROW(RandomFlow(1, FlowOptions{.max_quantity = 1'000'000'001}), std::invalid_argument);
+  EXPECT_THROW(RandomFlow(1, FlowOptions{.invalid_per_mille = -1}), std::invalid_argument);
+  EXPECT_THROW(RandomFlow(1, FlowOptions{.invalid_per_mille = 1001}), std::invalid_argument);
+}
+
+// With nothing spoiled, every new order must be accepted, one by one; near either price bound that holds only if the
+// mid is kept far enough inside it (the start and every step).
+void expect_every_order_accepted(FlowOptions options, int commands) {
+  options.invalid_per_mille = 0;
+  RandomFlow flow(17, options);
+  ReferenceBook book;
+  std::vector<Event> events;
+  for (int i = 0; i < commands; ++i) {
+    const Command command = flow.next();
+    events.clear();
+    book.apply(command, events);
+    if (std::holds_alternative<NewOrder>(command)) {
+      ASSERT_TRUE(std::holds_alternative<Accepted>(events.front()))
+          << "command " << i << ": '" << format(command) << "' gave '" << format(events.front()) << "'";
+    }
+  }
+}
+
+TEST(RandomFlow, NearTheLowestPriceEveryOrderSentValidIsAccepted) {
+  expect_every_order_accepted(FlowOptions{.start_price = 1, .target_resting = 50}, 20'000);
+}
+
+TEST(RandomFlow, NearTheHighestPriceEveryOrderSentValidIsAccepted) {
+  expect_every_order_accepted(FlowOptions{.start_price = 1'000'000'000, .target_resting = 50}, 20'000);
 }
 
 TEST(RandomFlow, OrdersSentValidAreAccepted) {
