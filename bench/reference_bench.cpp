@@ -53,7 +53,7 @@ void BM_ReferenceBook(benchmark::State& state) {
     benchmark::DoNotOptimize(events.data());
     benchmark::ClobberMemory();
   }
-  state.SetItemsProcessed(static_cast<std::int64_t>(state.iterations()) * static_cast<std::int64_t>(kCommands));
+  state.SetItemsProcessed(state.iterations() * static_cast<benchmark::IterationCount>(kCommands));
   state.counters["resting"] = static_cast<double>(warmed.size());
 }
 BENCHMARK(BM_ReferenceBook)->Arg(10)->Arg(100)->Arg(1'000)->Arg(10'000)->Unit(benchmark::kMillisecond);
