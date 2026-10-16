@@ -25,6 +25,14 @@ target_include_directories(orderbook PUBLIC ${PROJECT_SOURCE_DIR}/include)
 target_compile_features(orderbook PUBLIC cxx_std_20)
 orderbook_set_warnings(orderbook)
 
+# What tests, benchmarks and tools use to check a book: the reference model (the oracle) and, as they are added, the
+# scenario runner, the random command generator and the invariant checks. Kept out of the engine's library.
+add_library(orderbook_testkit
+  src/reference_book.cpp)
+add_library(orderbook::testkit ALIAS orderbook_testkit)
+target_link_libraries(orderbook_testkit PUBLIC orderbook::orderbook)
+orderbook_set_warnings(orderbook_testkit)
+
 if(ORDERBOOK_BUILD_TESTS)
   include(cmake/Dependencies.cmake)
   enable_testing()
