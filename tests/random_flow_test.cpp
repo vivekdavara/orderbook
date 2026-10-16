@@ -46,7 +46,7 @@ TEST(RandomFlow, TheStreamIsTheSameOnEveryPlatform) {
   // generator is changed on purpose, this number changes with it, and the seeds in failing-test reports that
   // predate the change no longer reproduce.
   RandomFlow flow(1);
-  EXPECT_EQ(hash_stream(flow, 100'000), 0x351d5dcb870a1dcdULL);
+  EXPECT_EQ(hash_stream(flow, 100'000), 0x167c7c6d660e50beULL);
 }
 
 TEST(RandomFlow, EveryCommandHasATextFormThatParsesBack) {

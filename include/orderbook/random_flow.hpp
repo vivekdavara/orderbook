@@ -48,6 +48,7 @@ class RandomFlow {
 
   NewOrder new_order(OrderType type);
   void spoil(NewOrder& order, std::uint64_t how);
+  static int rule_broken_by(std::uint64_t how);
   CancelOrder cancel();
   void step_mid();
   std::int64_t lowest_mid() const;

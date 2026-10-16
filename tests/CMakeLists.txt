@@ -7,6 +7,7 @@ add_executable(orderbook_tests
   reference_book_test.cpp
   review/audit_accepts_zero_quantity_trade_test.cpp
   review/random_flow_unclamped_start_price_test.cpp
+  review2/random_flow_double_spoil_breaks_two_rules_test.cpp
   scenario_test.cpp
   text_test.cpp
   types_test.cpp)

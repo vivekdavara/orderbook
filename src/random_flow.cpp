@@ -99,10 +99,15 @@ NewOrder RandomFlow::new_order(OrderType type) {
   NewOrder order{OrderId{next_id_++}, side, type, Quantity{quantity}, Price{price}};
   if (below(1000) < static_cast<std::uint64_t>(options_.invalid_per_mille)) {
     const NewOrder valid = order;
-    // One in four spoiled orders breaks two rules, so the order of the checks decides the reason.
+    // One in four spoiled orders breaks two rules, so the order of the checks decides the reason. The second way is
+    // drawn until it breaks a different rule: two ways on the same field would leave only one rule broken.
     const std::uint64_t first = below(6);
     spoil(order, first);
-    if (below(4) == 0) spoil(order, (first + 1 + below(5)) % 6);
+    if (below(4) == 0) {
+      std::uint64_t second = below(6);
+      while (rule_broken_by(second) == rule_broken_by(first)) second = below(6);
+      spoil(order, second);
+    }
     if (order.id == valid.id) resend_ = valid;
   } else {
     last_valid_id_ = order.id.value;
@@ -111,7 +116,10 @@ NewOrder RandomFlow::new_order(OrderType type) {
   return order;
 }
 
-// Breaks one rule: 0 the id, 1 to 3 the quantity, 4 and 5 the price.
+// Which rule each way of spoiling an order breaks: 0 the id, 1 to 3 the quantity, 4 and 5 the price.
+int RandomFlow::rule_broken_by(std::uint64_t how) { return how == 0 ? 0 : how <= 3 ? 1 : 2; }
+
+// Breaks one rule, the one rule_broken_by(how) names.
 void RandomFlow::spoil(NewOrder& order, std::uint64_t how) {
   const bool market = order.type == OrderType::Market;
   switch (how) {

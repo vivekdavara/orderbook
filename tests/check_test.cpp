@@ -80,7 +80,7 @@ TEST(Invariants, TheReferenceModelsEventsAndBookAreTheSameOnEveryPlatform) {
     for (const Event& event : events) mix(format(event));
   }
   for (const Side side : {Side::Buy, Side::Sell}) mix(describe(book.orders(side)));
-  EXPECT_EQ(hash, 0x9e240c9dcbca21cdULL);
+  EXPECT_EQ(hash, 0xc26f671e4e0c639ULL);
 }
 
 TEST(Invariants, HoldWithLargeQuantitiesAndANearlyEmptyBook) {
