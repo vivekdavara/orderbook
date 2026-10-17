@@ -167,15 +167,17 @@ cancels of orders that had already filled. The `diff` line printed `commands 100
 and the same state every 1000 commands and at the end` in 3.72 s. On a difference, `diff` reports it on stderr at
 once, then prints the shrunk commands as a scenario file and exits 1.
 
-`make soak` (`scripts/diff_soak.sh`) runs the release build's `diff` on six mixes, four seeds each, four runs at a
-time: 50 million commands a run for the default mix, long queues at three prices, one-lot orders, quantities to 10^9 on
-a nearly empty book, and 30% spoiled orders, and 10 million for a deep book (target 5,000 orders over 2,000 ticks). At
-`5d65524` it printed `24 runs, 1040000000 commands, in 48 s`, every run `ok` (on power, 10:49). Run on a deliberately
-broken engine (the time-priority mutation below), all 24 runs reported a difference. Three of them also crashed: the
-broken engine's index held iterators to freed nodes. Two had already printed the difference (it is reported before
-the shrinking, which replays the broken book many times); one crashed before its events differed, and the ASan build
-(`build/asan/orderbook`, from `make asan`) reports that one as a heap-use-after-free in `Book::cancel`. A book with a
-memory error can crash a differential run; the sanitizer build says where.
+`make soak` (`scripts/diff_soak.sh`) runs the release build's `diff` on six mixes, four seeds each, four runs at a time:
+50 million commands a run for the default mix, long queues at three prices, one-lot orders, quantities to 10^9 on a
+nearly empty book, and 30% spoiled orders, and 10 million for a deep book (a target of 5,000 orders within 2,000 ticks
+either side of a moving mid). At `5d65524` it printed `24 runs, 1040000000 commands, in 48 s`, every run `ok` (on power,
+10:49). Run on a deliberately broken engine (the time-priority mutation below), all 24 runs reported a difference. Three
+of them also crashed: the broken engine's index held iterators to freed nodes. Two had already printed the difference
+(it is reported before the shrinking, which replays the broken book many times); one crashed before its events differed,
+and the ASan build (`build/asan/orderbook`, from `make asan`) reports that one as a heap-use-after-free in
+`Book::cancel`. A book with a memory error can crash a differential run; the sanitizer build says where. (The script now
+reports a run that crashed as `FAILED (exit 139)` rather than as a difference: on the same mutant at `820061f`, 22 runs
+DIFFERENT and 2 FAILED.)
 
 ## When a random run fails
 
@@ -372,6 +374,23 @@ for tests only, around two deliberately broken books, and the tests check `diff`
 that `--book` runs the book it names. Its docs corrections are in (`c066d09`): validation shares the bounds
 predicates with the reference model (an exclusive price bound passes every differential run and fails the
 hand-written bounds tests), the schedule of the Audit's comparisons, and an O(1) that is O(1) on average.
+
+A second agent then reviewed only what was written after the first, fixes included, at `2ada4ad`, in 17 minutes. It
+checked the new scenario state lines (46 malformed lines, 48 harness-written files, 8 broken books) and found no file
+that passed on a broken book. It reproduced two bugs, saved in `tests/review4/`, and I reproduced both here before
+fixing them:
+
+- **An order reported on the wrong side was caught, then reported as no difference** (`expected '= orders bids
+  1:100x5', actual '= orders bids 1:100x5'`): a resting order's side is compared but the line form leaves it to the
+  line. Lists that print the same and still differ are now printed with each order's side, `1:100x5(sell)`
+  (`f681482`).
+- **`scripts/diff_soak.sh` left its four runs going on Ctrl-C** (a non-interactive shell's `&` jobs ignore SIGINT),
+  **left its work directory under dash** (no EXIT trap on a signal), and **resolved a relative binary from the wrong
+  directory**. Signal traps now stop the runs and clean up, the path is made absolute before the script's `cd`, and a
+  run is reported as ok, DIFFERENT, or FAILED with its exit code (`820061f`).
+
+Its three surviving mutations (the CLI's `run` and `audit` ignoring `--book`, and state lines that accepted trailing
+words) now fail tests (`7681692`).
 
 ## Design decisions
 

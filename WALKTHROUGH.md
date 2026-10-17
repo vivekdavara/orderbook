@@ -232,7 +232,10 @@ harness, one real bug: a difference only in a book's best price, its count or it
 scenario file the broken book passed, because the file checked events and depth only. Scenario files now have state
 checks, and every harness-written file ends with all of them. And 13 of its 39 mutations went unnoticed or were caught
 only by a crash, among them every way the CLI could get `--book` or `diff`'s exit code wrong, since both books print
-the same output; the tool is now also built, for tests only, around deliberately broken books.
+the same output; the tool is now also built, for tests only, around deliberately broken books. A second agent then
+reviewed only the code written after the first, fixes included, and found two more: an order on the wrong side was
+caught but reported as two identical strings (the side isn't in the line form, so such reports now print it), and the
+soak script left its runs going on Ctrl-C and its temp directory behind under dash.
 
 **How is the code fuzzed?**
 Two libFuzzer targets in `fuzz/`: arbitrary bytes into the text parsers (a line that parses must format and parse back
