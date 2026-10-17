@@ -1,23 +1,55 @@
 #!/bin/sh
 # The differential soak: `orderbook diff` (the engine against the reference model, every event compared) on six mixes
-# of random commands, four seeds each, 1.04 billion commands in all, four runs at a time. Prints one line per run and
-# exits 1 if any run found a difference; that run's shrunk scenario file is printed at the end.
+# of random commands, four seeds each, 1.04 billion commands in all, four runs at a time. Prints one line per run: ok,
+# DIFFERENT (diff found a difference and exited 1), or FAILED with any other exit code (a crash, a usage error).
+# Exits 1 if any run wasn't ok, and prints each such run's report and shrunk scenario file at the end.
 #
-#   scripts/diff_soak.sh [ORDERBOOK_BINARY]      (or: make soak, which builds the release binary first)
+#   scripts/diff_soak.sh [ORDERBOOK_BINARY]      (a relative path is from where it is run; without one, the
+#                                                 release build's; make soak builds that one first)
+#
+# Ctrl-C (or SIGTERM) stops the runs in flight and removes the work directory.
 set -u
+bin=""
+if [ $# -ge 1 ]; then
+  case $1 in
+    /*) bin=$1 ;;
+    *) bin=$PWD/$1 ;;  # resolved before the cd below
+  esac
+fi
 cd "$(dirname "$0")/.."
-bin=${1:-build/release/orderbook}
-if [ ! -x "$bin" ]; then
+[ -n "$bin" ] || bin=$PWD/build/release/orderbook
+if [ ! -f "$bin" ] || [ ! -x "$bin" ]; then
   echo "diff_soak: no binary at $bin (make soak builds it)" >&2
   exit 2
 fi
 work=$(mktemp -d "${TMPDIR:-/tmp}/diff_soak.XXXXXX")
-trap 'rm -rf "$work"' EXIT
 
-# One run: its seed is its name. Writes "ok|DIFFERENT <seconds>s diff <args>" and keeps a difference's scenario.
+# Runs started with & ignore SIGINT in a non-interactive shell, so an interrupt has to stop them itself (each run
+# writes its process id to a file); and dash, /bin/sh on Ubuntu, runs no EXIT trap when a signal ends the shell, so the
+# signal traps clean up and exit themselves.
+stop() {
+  for pid_file in "$work"/*.pid; do
+    if [ -f "$pid_file" ]; then kill "$(cat "$pid_file")" 2>/dev/null; fi
+  done
+  wait
+  rm -rf "$work"
+}
+trap 'rm -rf "$work"' EXIT
+trap 'trap - EXIT; stop; exit 130' INT
+trap 'trap - EXIT; stop; exit 143' TERM
+
+# One run: its seed is its name. Writes "<status> <seconds>s diff <args>" and keeps its report and scenario.
 run() {
   start=$(date +%s)
-  if "$bin" diff "$@" >"$work/$1.out" 2>"$work/$1.err"; then status=ok; else status=DIFFERENT; fi
+  "$bin" diff "$@" >"$work/$1.out" 2>"$work/$1.err" &
+  echo $! >"$work/$1.pid"
+  wait $!
+  code=$?
+  case $code in
+    0) status=ok ;;
+    1) status=DIFFERENT ;;
+    *) status="FAILED (exit $code)" ;;
+  esac
   echo "$status $(($(date +%s) - start))s diff $*" >"$work/$1.line"
 }
 wave() {  # four seeds of one mix, at once: wave FIRST_SEED COUNT OPTIONS...
@@ -39,7 +71,7 @@ echo "24 runs, 1040000000 commands, in $(($(date +%s) - started)) s"
 
 status=0
 for seed in $(seq 1 24); do
-  if grep -q '^DIFFERENT' "$work/$seed.line"; then
+  if ! grep -q '^ok ' "$work/$seed.line"; then
     status=1
     echo "== seed $seed:"
     cat "$work/$seed.err" "$work/$seed.out"

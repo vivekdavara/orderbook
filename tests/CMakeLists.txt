@@ -12,6 +12,7 @@ add_executable(orderbook_tests
   review/random_flow_unclamped_start_price_test.cpp
   review2/random_flow_double_spoil_breaks_two_rules_test.cpp
   review3/state_only_difference_scenario_test.cpp
+  review4/diff_soak_script_test.cpp
   review4/state_mismatch_report_test.cpp
   scenario_test.cpp
   text_test.cpp
