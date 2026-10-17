@@ -252,6 +252,19 @@ most.
 the same code, with the two sizes added to the benchmark in `bench/book_bench.cpp`); the reference model's 200 row
 had a coefficient of variation of 10.8% in wall time.
 
+The same benchmarks again at `a2992a9` on power, with the video call over (11:45, load average 3.4 to 4.0, every
+size in one run; coefficients of variation 3.3% at most in wall time, most under 1%); every figure is within 3% of the
+runs above, and these are the numbers day 3 is measured against:
+
+| Resting at the start | Reference model | Engine | Engine per command | Engine ÷ reference |
+|---|---|---|---|---|
+| 7 | 85.5 M/s | 20.5 M/s | 49 ns | 0.24 |
+| 70 | 24.6 M/s | 21.5 M/s | 47 ns | 0.87 |
+| 108 | 15.8 M/s | 22.8 M/s | 44 ns | 1.44 |
+| 240 | 8.98 M/s | 23.7 M/s | 42 ns | 2.6 |
+| 583 | 4.39 M/s | 23.5 M/s | 43 ns | 5.4 |
+| 5,410 | 525 k/s | 19.3 M/s | 52 ns | 37 |
+
 The engine's cost per command stays between 43 and 53 ns from 7 orders to 5,410, where the reference model's grows
 with the book (it scans a side for every fill and cancel). But on small books the engine is slower: 4 times slower at
 7 orders, and still slower at 70; it is ahead from 108 orders on, so the crossover is between 70 and 108. On a small
