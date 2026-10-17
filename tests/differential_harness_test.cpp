@@ -71,6 +71,25 @@ TEST(Differential, FindsADifferenceInStateWhenEveryEventAgrees) {
   EXPECT_EQ(every_command->what, "after command 3: bids depth: expected '100x1 99x1 98x1', actual '100x1 99x1'");
 }
 
+TEST(Differential, ComparesStatesAfterEveryNthCommand) {
+  // The depth is wrong only after the third command (three levels), and right again after the fourth.
+  const std::vector<Command> commands =
+      parse_lines({"new 1 buy limit 1 @ 100", "new 2 buy limit 1 @ 99", "new 3 buy limit 1 @ 98", "cancel 3"});
+  const auto every_third = first_difference<ReferenceBook, broken::BookWithShortDepth>(commands, 3);
+  ASSERT_TRUE(every_third.has_value());
+  EXPECT_EQ(every_third->index, 2U);
+  EXPECT_EQ((first_difference<ReferenceBook, broken::BookWithShortDepth>(commands, 2)), std::nullopt);  // after 2, 4
+}
+
+TEST(Differential, ARandomStreamComparesTheFinalStateEvenWithNoCheckpoints) {
+  const FlowOptions options{.target_resting = 50};
+  const StreamDifference result =
+      diff_random_stream<ReferenceBook, broken::BookWithShortDepth>(3, options, 2'000, 0);
+  ASSERT_TRUE(result.difference.has_value());
+  EXPECT_FALSE(result.difference->in_events);
+  EXPECT_EQ(result.commands, 2'000U);  // the end of the stream, the only state comparison
+}
+
 TEST(Differential, ComparesEveryPartOfTheState) {
   // Each book below gets one thing wrong that no event shows, and each is named in the difference.
   const auto best = first_difference<ReferenceBook, broken::BookWithNoBestPriceForALoneOrder>(

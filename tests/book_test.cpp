@@ -6,6 +6,7 @@
 
 #include <gtest/gtest.h>
 
+#include <memory>
 #include <string>
 #include <string_view>
 #include <type_traits>
@@ -101,6 +102,8 @@ TEST(Engine, AnOrderAtAPriceWhoseLevelEmptiedStartsANewQueue) {
   Book book;
   run_all(book, {"new 1 sell limit 5 @ 101", "new 2 buy limit 5 @ 101"});  // fills 1; the level goes
   EXPECT_EQ(book.size(), 0U);
+  EXPECT_TRUE(book.depth(Side::Sell).empty());
+  EXPECT_EQ(book.best_price(Side::Sell), std::nullopt);
   run_all(book, {"new 3 sell limit 2 @ 101", "new 4 sell limit 2 @ 101"});
   EXPECT_EQ(format(book.depth(Side::Sell)), "101x4");
   EXPECT_EQ(run(book, "new 5 buy market 3"), (Lines{"accepted 5", "trade 5 3 2 @ 101", "trade 5 4 1 @ 101"}));
@@ -123,19 +126,31 @@ TEST(Engine, AMarketOrderSweepsEveryLevel) {
 }
 
 TEST(Engine, AMovedBookKeepsAWorkingIndex) {
-  Book original;
-  run_all(original, {"new 1 buy limit 5 @ 100", "new 2 buy limit 5 @ 100", "new 3 sell limit 5 @ 102"});
-  Book moved(std::move(original));
-  // Under the sanitizers, an index entry left pointing into the moved-from book would be caught here.
+  auto original = std::make_unique<Book>();
+  run_all(*original, {"new 1 buy limit 5 @ 100", "new 2 buy limit 5 @ 100", "new 3 sell limit 5 @ 102"});
+  Book moved(std::move(*original));
+  // A move that copied the containers would leave the index pointing into the moved-from book, and this cancel would
+  // unlink a node there: the event would look right, but this book's own orders and depth wouldn't change.
   EXPECT_EQ(run(moved, "cancel 1"), Lines{"cancelled 1 5 requested"});
+  EXPECT_EQ(moved.orders(Side::Buy), (std::vector<RestingOrder>{{OrderId{2}, Side::Buy, Price{100}, Quantity{5}}}));
+  EXPECT_EQ(format(moved.depth(Side::Buy)), "100x5");
+  // Nothing may depend on the moved-from book once it is gone (under ASan, a use of it would be reported).
+  original.reset();
   EXPECT_EQ(run(moved, "new 4 sell market 2"), (Lines{"accepted 4", "trade 4 2 2 @ 100"}));
+  EXPECT_EQ(format(moved.depth(Side::Buy)), "100x3");
   EXPECT_EQ(moved.last_accepted_id(), OrderId{4});
 
   Book assigned;
   run(assigned, "new 1 sell limit 1 @ 500");  // replaced by the assignment
-  assigned = std::move(moved);
+  auto source = std::make_unique<Book>(std::move(moved));
+  assigned = std::move(*source);
+  EXPECT_EQ(format(assigned.depth(Side::Sell)), "102x5");  // order 1 at 500 went with the old contents
   EXPECT_EQ(run(assigned, "cancel 2"), Lines{"cancelled 2 3 requested"});
+  EXPECT_TRUE(assigned.orders(Side::Buy).empty());
+  EXPECT_TRUE(assigned.depth(Side::Buy).empty());
+  source.reset();
   EXPECT_EQ(run(assigned, "cancel 3"), Lines{"cancelled 3 5 requested"});
+  EXPECT_TRUE(assigned.depth(Side::Sell).empty());
   EXPECT_EQ(assigned.size(), 0U);
   EXPECT_EQ(run(assigned, "new 4 buy limit 1 @ 100"), Lines{"rejected 4 id-not-increasing"});
 }

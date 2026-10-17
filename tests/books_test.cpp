@@ -75,6 +75,10 @@ TYPED_TEST(Books, ReportsOrdersInPriorityOrderAndDepthBestFirst) {
   EXPECT_EQ(book.orders(Side::Sell), asks);
   EXPECT_EQ(format(book.depth(Side::Buy)), "100x3 99x12");
   EXPECT_EQ(format(book.depth(Side::Sell)), "102x6 103x3");
+  // The best of several levels on each side, and six orders (not four levels) resting.
+  EXPECT_EQ(book.best_price(Side::Buy), Price{100});
+  EXPECT_EQ(book.best_price(Side::Sell), Price{102});
+  EXPECT_EQ(book.size(), 6U);
 }
 
 TYPED_TEST(Books, ChecksTheRulesInTheirSpecifiedOrder) {
@@ -93,8 +97,14 @@ TYPED_TEST(Books, IdsMustIncrease) {
   EXPECT_EQ(run(book, "new 7 buy limit 1 @ 100"), Lines{"accepted 7"});
   EXPECT_EQ(run(book, "new 7 sell limit 1 @ 200"), Lines{"rejected 7 id-not-increasing"});
   EXPECT_EQ(run(book, "new 3 sell limit 1 @ 200"), Lines{"rejected 3 id-not-increasing"});
-  // An id may skip ahead: it only has to be greater.
+  // An id may skip ahead: it only has to be greater, by any amount, up to the largest id.
   EXPECT_EQ(run(book, "new 1000 sell limit 1 @ 200"), Lines{"accepted 1000"});
+  EXPECT_EQ(run(book, "new 5000000000 sell limit 1 @ 201"), Lines{"accepted 5000000000"});
+  EXPECT_EQ(run(book, "new 18446744073709551615 sell limit 1 @ 202"), Lines{"accepted 18446744073709551615"});
+  EXPECT_EQ(book.last_accepted_id(), OrderId{18446744073709551615ULL});
+  // After the largest id nothing more can be accepted.
+  EXPECT_EQ(run(book, "new 18446744073709551615 buy market 1"),
+            Lines{"rejected 18446744073709551615 id-not-increasing"});
 }
 
 TYPED_TEST(Books, BoundsAreInclusive) {
@@ -104,6 +114,15 @@ TYPED_TEST(Books, BoundsAreInclusive) {
   EXPECT_EQ(run(book, "new 3 buy limit 1000000001 @ 1"), Lines{"rejected 3 invalid-quantity"});
   EXPECT_EQ(run(book, "new 3 sell limit 1 @ 1000000001"), Lines{"rejected 3 invalid-price"});
   EXPECT_EQ(run(book, "new 3 sell ioc 1 @ -5"), Lines{"rejected 3 invalid-price"});
+}
+
+TYPED_TEST(Books, AMarketOrderTradesWithMakersAtThePriceBounds) {
+  TypeParam book;
+  run_all(book, {"new 1 sell limit 3 @ 1000000000", "new 2 buy limit 4 @ 1"});
+  EXPECT_EQ(run(book, "new 3 buy market 5"),
+            (Lines{"accepted 3", "trade 3 1 3 @ 1000000000", "cancelled 3 2 unfilled"}));
+  EXPECT_EQ(run(book, "new 4 sell market 4"), (Lines{"accepted 4", "trade 4 2 4 @ 1"}));
+  EXPECT_EQ(book.size(), 0U);
 }
 
 TYPED_TEST(Books, AMarketOrderMustNotCarryAPrice) {
