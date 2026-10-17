@@ -205,7 +205,10 @@ single event:
   to the order's level and list node (two iterators) makes a cancel O(1) amortised. Matching takes the first level,
   trades with its queue from the front, erases each maker it fills from the index and the queue, and erases the
   level when it empties; a limit order's remainder goes to the back of its level (made if new). Validation is the
-  engine's own code, not shared with the reference model. The book is move-only: a copy would need its index rebuilt
+  engine's own function, in the specified order, but the bounds and their predicates (`valid_price`, `valid_quantity`
+  in `types.hpp`) are vocabulary both books share, so a mistake in them would pass every differential test; the
+  hand-written tests (`types_test.cpp`, `Books.BoundsAreInclusive`, `09_validation.txt`) check them. The book is
+  move-only: a copy would need its index rebuilt
   for its own nodes, and a member-wise copy would point into the original.
 - **What day 2 costs.** At 7 resting orders the engine did 20.4M commands/s against the reference model's 86.0M, and
   at 5,410 it did 18.9M against 516k (README, "Results (day 2)"): flat in the book's size, but slower than a vector
@@ -244,8 +247,11 @@ replay and L2 snapshots.
 - **The Audit** (`check.hpp`) follows every command of long random runs and checks its events against its own record
   of the resting orders: validation and the order of its checks, I2, I3, I4, I6 and the order of the events. It
   shares none of the reference model's matching code (only the vocabulary types, their bounds and `opposite`), so it
-  checks the reference model too. `check_book` (I1, I5) and the Audit's comparison of its record with the book run
-  after every command in one 25,000-command run and in the book fuzzer, and every 25 and 250 commands in the others.
+  checks the reference model too. `check_book` (I1, I5) runs after every command in one 25,000-command run of the
+  reference model and in the book fuzzer, every 25 commands in the other reference runs, and at each checkpoint of the
+  differential tests. The Audit's comparison of its record with a book runs every 10 commands in that one run, every
+  250 in the others, and at the end of each fuzz input and each differential run; the differential tests and the
+  fuzzer also compare the two books' states directly (every checkpoint, and every command).
 - **Random streams** come from a seeded generator with its own integer distribution, because the standard library's
   distributions are implementation-defined: `std::uniform_int_distribution` gives different numbers with libstdc++
   (Linux) and libc++ (macOS), and the same seed must give the same stream on both CI runners. A spoiled order breaks

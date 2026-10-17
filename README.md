@@ -79,7 +79,7 @@ list node, makes a cancel O(1) amortised: no search for the order, none for its 
 
 | Operation | Cost |
 |---|---|
-| New order that rests | O(log L) to find or make its level (L levels on its side), O(1) to queue it and index it |
+| New order that rests | O(log L) to find or make its level (L levels on its side), O(1) to queue it, O(1) on average to index it (a hash insert) |
 | A taker's fills | O(1) per maker filled or reached; O(1) amortised to drop each level it empties |
 | Cancel | O(1) amortised: the index finds the node, the list unlinks it, an emptied level is erased by iterator |
 | Best price | O(1): the first entry of the side's map |
@@ -350,7 +350,10 @@ that nothing bounded the minimizer's replays (`cdaf411`); its docs corrections a
   for a rejection, not just on the rejection.
 - **A deliberately naive reference model** as the oracle, instead of trusting the engine's own unit tests: the
   differential tests compare every event, which no hand-written test can do at scale. The engine shares none of its
-  code, not even validation, so a mistake copied into both can't hide.
+  matching code and has its own validation function, so a mistake copied into both can't hide there; what they do
+  share is the vocabulary (the types, the bounds and the predicates that apply them, `valid_price` and
+  `valid_quantity`), which the differential tests therefore can't check and the hand-written tests do (the review
+  showed it: making the price bound exclusive passed every differential run, and failed `BoundsAreInclusive`).
 - **The conventional engine first.** Day 2's engine uses standard containers (a map of levels, a list per level, a
   hash index), so its correctness is settled by the differential tests before day 3 changes its data structures for
   speed, and every day-3 change is checked against the same tests.
@@ -380,6 +383,11 @@ that nothing bounded the minimizer's replays (`cdaf411`); its docs corrections a
 - Day 2's engine allocates on the hot path (a list node and a hash node for each order that rests, a map node for each
   new level) and is slower than the reference model on books of fewer than about a hundred orders; day 3 removes the
   allocation.
+- Not exception-safe: if an allocation fails partway through a command (a `bad_alloc` in `rest`, between making a
+  level and indexing the order), the book can be left with an empty level or an order the index doesn't know. Day 3's
+  pool, sized up front, needs a policy for running out instead.
+- Shrinking a difference keeps the stream up to it in memory and replays it, about n log n times when chunks fall
+  away easily; a difference found late in a long `orderbook diff` run takes correspondingly long to shrink.
 - The benchmark numbers above were measured on battery with other apps open (day 2's during a video call); day 3's
   are to be measured on power with nothing else running.
 

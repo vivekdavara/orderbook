@@ -110,7 +110,10 @@ through all three. Day 3 is about exactly that: intrusive lists over a pool, an 
 
 **Why doesn't the engine reuse the reference model's validation?**
 Shared code can't disagree with itself, so a mistake in it would pass every differential test. The engine has its
-own four lines of validation; the Audit checks the order of the checks independently of both.
+own validation function, so the order of the checks is checked differentially (and by the Audit, independently of
+both). But both call the same bounds predicates, `valid_price` and `valid_quantity` in `types.hpp`: the day-2 review
+made the price bound exclusive there, and every differential run still passed. Only the hand-written tests caught it
+(`Books.BoundsAreInclusive`, the validation scenario, `types_test.cpp`). Shared vocabulary needs its own tests.
 
 **Is the engine deterministic, with an `unordered_map` inside?**
 Iteration order of an `unordered_map` differs between standard libraries, but the engine never iterates its index:
