@@ -279,6 +279,10 @@ core's.
 Clang on macOS, each Debug and Release, and Clang under ASan and UBSan), fuzzes on a fifth, and runs `make soak` with
 GCC 14 on a sixth: at `f833616`, `24 runs, 1040000000 commands, in 71 s`.
 
+`make coverage` at `5a2c8c2` (day 2): 98.3% of lines (1,112 of 1,131) and 96.0% of branches (672 of 700); the engine
+(`src/book.cpp`) and the reference model are at 100% of both, and `src/scenario.cpp` misses only the fallback after a
+switch over every check kind. Day 1's numbers follow.
+
 `make coverage` (Clang source-based coverage of `src/` and `include/` by everything CTest runs: the GoogleTest suite,
 and the CLI tests and fuzz runs, whose profiles are merged in), at `cdaf411`: 98.7% of lines (746 of 756), 97.3% of
 branches (475 of 488), 97.8% of regions. The 10 lines nothing runs are the `"?"` fallbacks for enum values outside
