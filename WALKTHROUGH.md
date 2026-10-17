@@ -1,12 +1,16 @@
 # Walkthrough
 
 Questions an interviewer is likely to ask about this project, with short answers grounded in the code. Day 1 covers
-the specification, the reference model and the test kit; later days add the engine, the gateway and the
-measurements.
+the specification, the reference model and the test kit; day 2 the engine and the differential tests; later days add
+the fast engine, the gateway and the measurements.
 
 Reading order for day 1: DESIGN.md ("Validation", "Matching", "Events", "Invariants"), then
 `src/reference_book.cpp` (one screen), a scenario file such as `tests/scenarios/03_time_priority.txt`, then
 `src/check.cpp` (`Audit::record_new`) and `src/random_flow.cpp`.
+
+Reading order for day 2: `include/orderbook/book.hpp` and `src/book.cpp` (`new_order`, `rest`, `cancel`), then
+`include/orderbook/differential.hpp` (`Lockstep`, `first_difference`, `shrink_to_scenario`), then
+`tests/differential_test.cpp` (`expect_same_books` and the seven mixes).
 
 ## The project
 
@@ -68,6 +72,51 @@ don't convert into each other and are still trivially copyable 8-byte values.
 **Why one `trade` event naming both orders?**
 It's the engine's internal event; one fill is one fact. The gateway turns it into an execution report for each
 side. Two events per fill would double the engine's output for no information.
+
+## The engine
+
+**How is the engine built?**
+`Book` (`src/book.cpp`) keeps each side as a `std::map` from price to level, best first, so the best price is
+`begin()`. A level is a `std::list` of `{id, remaining}` in arrival order plus its total quantity. An
+`std::unordered_map` from id to `{side, map iterator, list iterator}` finds a resting order without searching.
+A taker walks the opposite map from `begin()` while it crosses, trades with each level's queue from the front, erases
+filled makers from the queue and the index, and erases a level when it empties; a limit remainder is pushed to the
+back of its level (`try_emplace` makes the level if it's new) and indexed.
+
+**What does each operation cost?**
+Resting a new order is O(log L) for its level (L levels on that side) and O(1) to queue and index it. Each fill is
+O(1), and erasing an emptied level by iterator is amortised O(1). A cancel is O(1) amortised: index lookup, list
+unlink, and a level erase by iterator if it emptied. Best price is O(1), depth O(L), since each level keeps its total.
+
+**Why one comparator type for both sides?**
+`BetterPrice{side}` compares higher-first for bids and lower-first for asks. With `std::greater` and `std::less` the
+two maps would be different types, so the index would need two iterator types (a variant, or two indexes) and the
+matching code would become a template. One type keeps one `Location` struct and one code path; the cost is a
+well-predicted branch per comparison, and day 3 replaces the map anyway.
+
+**Why is `Book` move-only?**
+Its index holds iterators into its own map and lists. A defaulted copy would copy those iterators, so the copy's
+cancels would unlink nodes in the original: a use-after-free once the original goes. Copying would need the index
+rebuilt for the copy's nodes, and nothing needs a copy, so the copy constructor is deleted (`book_test.cpp` asserts
+it). A move is safe: node-based containers hand their nodes to the new container, so every iterator still refers to
+the same element, now in the moved-to book; a test moves a book and then cancels and trades in it, under ASan too.
+
+**Why is the engine slower than the reference model on small books?**
+At 7 resting orders the reference model did 86.0M commands/s and the engine 20.4M; at 70, 25.3M and 20.9M; at 583
+the engine is 5.2 times faster, at 5,410, 37 times (`make bench`, `b0e54b2`, on battery). A side of 7 orders is a few
+cache lines of a vector the reference scans without allocating. The engine allocates a list node and a hash node for
+each order that rests (and a map node for a new level), frees them as orders fill and cancel, and follows pointers
+through all three. Day 3 is about exactly that: intrusive lists over a pool, an open-addressing index.
+
+**Why doesn't the engine reuse the reference model's validation?**
+Shared code can't disagree with itself, so a mistake in it would pass every differential test. The engine has its
+own four lines of validation; the Audit checks the order of the checks independently of both.
+
+**Is the engine deterministic, with an `unordered_map` inside?**
+Iteration order of an `unordered_map` differs between standard libraries, but the engine never iterates its index:
+it only looks ids up. Everything that decides events or the reported state walks the maps and lists, whose order is
+the book's. A test requires the engine's events and final book on 50,000 commands to hash to the reference model's
+pinned value, on every CI job (GCC, Clang, Apple Clang; Debug, Release, sanitizers).
 
 ## Testing
 
@@ -135,12 +184,37 @@ instead; the rerun disabled the condition.
 still fails, it drops chunks while the failure persists, then smaller chunks, down to single commands, so every
 command left is needed. In the tests a deliberately broken book (a trade a tick off when its maker had traded before)
 fails a 3,000-command random run, and 32 replays leave three commands: a resting sell, an IOC buy that part-fills it,
-and a market buy that trades with it again. Day 2 uses it to report engine-versus-reference disagreements.
+and a market buy that trades with it again. The differential harness uses it to report engine-versus-reference
+disagreements.
+
+**How is the engine tested against the reference model?**
+`Lockstep<ReferenceBook, Book>` applies each command to both and compares the two event vectors; at checkpoints
+`state_difference` compares each side's orders (id, price, remaining, in priority order), depth and best price, the
+number resting and the last accepted id. `differential_test.cpp` runs seven mixes, 720,000 commands, from the default
+mix to one-lot orders (every fill empties its maker), three-tick ranges (long queues), quantities to 10^9 on a nearly
+empty book, 30% spoiled orders, a deep book with 900+ levels a side, and prices at both bounds; each mix must reach a
+minimum book size, so a stream that stopped building a book fails. The engine's events also go through the Audit and
+its state through `check_book`, and `orderbook diff SEED COUNT` runs any number more (1,000,000 in 3.7 s, Debug).
+
+**What does a failing differential test print?**
+A scenario file: the shrunk commands, each with the reference model's events, a comment where the engine's differ,
+and the expected depth at the end. Breaking the engine on purpose (new orders to the front of their level) gives three
+commands: two asks at one price, then a cancel of the second, which the broken engine reports with the first one's
+quantity, because its index pointed at the wrong node. The broken engine fails the file; saved under
+`tests/scenarios/`, it is a regression test.
+
+**Tell me about a bug in the differential harness.**
+It came from that same deliberate mutation. The first version shrank by "the books differ in any way", events or
+final state. A wrong queue order shows in the state one command before it shows in an event, so ddmin kept the two
+resting orders and dropped the cancel: a file whose events all agree, which the broken engine passes. Now
+`Difference` records whether events differed, and the shrinking keeps that kind (`cabaf95`); a test with a book whose
+time priority is backwards (`BookWithNewestFirstQueues`) gives two commands under the old rule and three under the
+new, in a file the broken book fails.
 
 **How is the code fuzzed?**
 Two libFuzzer targets in `fuzz/`: arbitrary bytes into the text parsers (a line that parses must format and parse back
-to itself), and bytes decoded into commands on 16 prices for the reference model under the Audit and `check_book`
-after every command. CI runs each for 60 s under ASan and UBSan; Apple Clang has no libFuzzer, so on the Mac and in
+to itself), and bytes decoded into commands on 16 prices for both books in lockstep, their events and states compared
+after every command, with the Audit and `check_book` on the engine. CI runs each for 60 s under ASan and UBSan; Apple Clang has no libFuzzer, so on the Mac and in
 the other jobs a small `main()` runs them on the scenario files and on seeded random inputs.
 
 ## Build and CI
@@ -171,8 +245,10 @@ GitHub moves to Ubuntu 26 from October 19.
 **What do the benchmark numbers mean?**
 `BM_ReferenceBook/N` fills a book to about N orders with a random stream, then times the same 10,000 commands
 against a fresh copy of it. At 582 resting orders the reference does 4.54 M commands/s; at 5,417, 535 k: nine times
-the orders, 8.5 times the cost per command, linear as a scan should be. They are the baseline for day 2's engine,
-measured on battery with other apps open, so treat them as rough.
+the orders, 8.5 times the cost per command, linear as a scan should be. `BM_Engine/N` times the same commands against
+the same book (it can't copy one, so it rebuilds the book from the warm-up with the timer paused): 43 to 53 ns a
+command from 7 to 5,410 orders. All were measured on battery with other apps open (day 2's during a video call), so
+treat them as rough; the comparison between the two books on the same run is the reliable part.
 
 ## Limits
 
