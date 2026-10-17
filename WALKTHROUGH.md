@@ -224,6 +224,16 @@ resting orders and dropped the cancel: a file whose events all agree, which the 
 time priority is backwards (`BookWithNewestFirstQueues`) gives two commands under the old rule and three under the
 new, in a file the broken book fails.
 
+**What did the review of day 2 find?**
+A background agent reviewed the day's code at a fixed commit, as a correctness review in its own worktree, and saved
+each bug it reproduced as a failing test. In the engine, nothing: an edge-case script (ids 0 and 2^64 - 1, bounds and
+one past them, market orders with a price) and eight unusual random mixes agreed with the reference model. In the
+harness, one real bug: a difference only in a book's best price, its count or its last accepted id shrank to a
+scenario file the broken book passed, because the file checked events and depth only. Scenario files now have state
+checks, and every harness-written file ends with all of them. And 13 of its 39 mutations went unnoticed or were caught
+only by a crash, among them every way the CLI could get `--book` or `diff`'s exit code wrong, since both books print
+the same output; the tool is now also built, for tests only, around deliberately broken books.
+
 **How is the code fuzzed?**
 Two libFuzzer targets in `fuzz/`: arbitrary bytes into the text parsers (a line that parses must format and parse back
 to itself), and bytes decoded into commands on 16 prices for both books in lockstep, their events and states compared
