@@ -1,4 +1,4 @@
-#include "orderbook/reference_book.hpp"
+// The rules, one at a time, on both books: the reference model and the engine must each pass every test here.
 
 #include <gtest/gtest.h>
 
@@ -6,6 +6,8 @@
 #include <string_view>
 #include <vector>
 
+#include "orderbook/book.hpp"
+#include "orderbook/reference_book.hpp"
 #include "orderbook/text.hpp"
 
 namespace orderbook {
@@ -14,7 +16,8 @@ namespace {
 using Lines = std::vector<std::string>;
 
 // Applies one command written in the text format and returns its events in the text format.
-Lines run(ReferenceBook& book, std::string_view line) {
+template <typename AnyBook>
+Lines run(AnyBook& book, std::string_view line) {
   std::string error;
   const auto command = parse_command(line, &error);
   EXPECT_TRUE(command.has_value()) << line << ": " << error;
@@ -26,12 +29,20 @@ Lines run(ReferenceBook& book, std::string_view line) {
   return out;
 }
 
-void run_all(ReferenceBook& book, const std::vector<std::string_view>& lines) {
+template <typename AnyBook>
+void run_all(AnyBook& book, const std::vector<std::string_view>& lines) {
   for (const std::string_view line : lines) run(book, line);
 }
 
-TEST(ReferenceBook, StartsEmpty) {
-  const ReferenceBook book;
+// CTest names each test after its type: Books.StartsEmpty<orderbook::ReferenceBook>, then <orderbook::Book>.
+template <typename AnyBook>
+class Books : public ::testing::Test {};
+
+using Implementations = ::testing::Types<ReferenceBook, Book>;
+TYPED_TEST_SUITE(Books, Implementations);
+
+TYPED_TEST(Books, StartsEmpty) {
+  const TypeParam book;
   EXPECT_EQ(book.size(), 0U);
   EXPECT_EQ(book.best_price(Side::Buy), std::nullopt);
   EXPECT_EQ(book.best_price(Side::Sell), std::nullopt);
@@ -39,8 +50,8 @@ TEST(ReferenceBook, StartsEmpty) {
   EXPECT_EQ(book.last_accepted_id(), OrderId{0});
 }
 
-TEST(ReferenceBook, RestsALimitOrderThatDoesNotCross) {
-  ReferenceBook book;
+TYPED_TEST(Books, RestsALimitOrderThatDoesNotCross) {
+  TypeParam book;
   EXPECT_EQ(run(book, "new 1 buy limit 10 @ 100"), Lines{"accepted 1"});
   EXPECT_EQ(run(book, "new 2 sell limit 4 @ 101"), Lines{"accepted 2"});
   EXPECT_EQ(book.size(), 2U);
@@ -50,8 +61,8 @@ TEST(ReferenceBook, RestsALimitOrderThatDoesNotCross) {
   EXPECT_EQ(book.last_accepted_id(), OrderId{2});
 }
 
-TEST(ReferenceBook, ReportsOrdersInPriorityOrderAndDepthBestFirst) {
-  ReferenceBook book;
+TYPED_TEST(Books, ReportsOrdersInPriorityOrderAndDepthBestFirst) {
+  TypeParam book;
   run_all(book, {"new 1 buy limit 5 @ 99", "new 2 buy limit 3 @ 100", "new 3 buy limit 7 @ 99",
                  "new 4 sell limit 2 @ 103", "new 5 sell limit 6 @ 102", "new 6 sell limit 1 @ 103"});
   const std::vector<RestingOrder> bids{{OrderId{2}, Side::Buy, Price{100}, Quantity{3}},
@@ -66,8 +77,8 @@ TEST(ReferenceBook, ReportsOrdersInPriorityOrderAndDepthBestFirst) {
   EXPECT_EQ(format(book.depth(Side::Sell)), "102x6 103x3");
 }
 
-TEST(ReferenceBook, ChecksTheRulesInTheirSpecifiedOrder) {
-  ReferenceBook book;
+TYPED_TEST(Books, ChecksTheRulesInTheirSpecifiedOrder) {
+  TypeParam book;
   run(book, "new 5 buy limit 1 @ 100");
   // Breaks all three rules: the id is reported, because it is checked first.
   EXPECT_EQ(run(book, "new 5 buy limit 0 @ 0"), Lines{"rejected 5 id-not-increasing"});
@@ -76,8 +87,8 @@ TEST(ReferenceBook, ChecksTheRulesInTheirSpecifiedOrder) {
   EXPECT_EQ(run(book, "new 6 buy limit 1 @ 0"), Lines{"rejected 6 invalid-price"});
 }
 
-TEST(ReferenceBook, IdsMustIncrease) {
-  ReferenceBook book;
+TYPED_TEST(Books, IdsMustIncrease) {
+  TypeParam book;
   EXPECT_EQ(run(book, "new 0 buy limit 1 @ 100"), Lines{"rejected 0 id-not-increasing"});
   EXPECT_EQ(run(book, "new 7 buy limit 1 @ 100"), Lines{"accepted 7"});
   EXPECT_EQ(run(book, "new 7 sell limit 1 @ 200"), Lines{"rejected 7 id-not-increasing"});
@@ -86,8 +97,8 @@ TEST(ReferenceBook, IdsMustIncrease) {
   EXPECT_EQ(run(book, "new 1000 sell limit 1 @ 200"), Lines{"accepted 1000"});
 }
 
-TEST(ReferenceBook, BoundsAreInclusive) {
-  ReferenceBook book;
+TYPED_TEST(Books, BoundsAreInclusive) {
+  TypeParam book;
   EXPECT_EQ(run(book, "new 1 buy limit 1000000000 @ 1"), Lines{"accepted 1"});
   EXPECT_EQ(run(book, "new 2 sell limit 1 @ 1000000000"), Lines{"accepted 2"});
   EXPECT_EQ(run(book, "new 3 buy limit 1000000001 @ 1"), Lines{"rejected 3 invalid-quantity"});
@@ -95,15 +106,15 @@ TEST(ReferenceBook, BoundsAreInclusive) {
   EXPECT_EQ(run(book, "new 3 sell ioc 1 @ -5"), Lines{"rejected 3 invalid-price"});
 }
 
-TEST(ReferenceBook, AMarketOrderMustNotCarryAPrice) {
-  ReferenceBook book;
+TYPED_TEST(Books, AMarketOrderMustNotCarryAPrice) {
+  TypeParam book;
   run(book, "new 1 sell limit 5 @ 100");
   EXPECT_EQ(run(book, "new 2 buy market 5 @ 100"), Lines{"rejected 2 invalid-price"});
   EXPECT_EQ(run(book, "new 2 buy market 5"), (Lines{"accepted 2", "trade 2 1 5 @ 100"}));
 }
 
-TEST(ReferenceBook, ARejectedCommandChangesNothing) {
-  ReferenceBook book;
+TYPED_TEST(Books, ARejectedCommandChangesNothing) {
+  TypeParam book;
   run_all(book, {"new 1 buy limit 5 @ 99", "new 2 sell limit 6 @ 102", "new 3 sell limit 1 @ 103"});
   const auto bids = book.orders(Side::Buy);
   const auto asks = book.orders(Side::Sell);
@@ -120,16 +131,16 @@ TEST(ReferenceBook, ARejectedCommandChangesNothing) {
   EXPECT_EQ(run(book, "new 4 buy ioc 1 @ 103"), (Lines{"accepted 4", "trade 4 2 1 @ 102"}));
 }
 
-TEST(ReferenceBook, CancelReportsWhatWasLeft) {
-  ReferenceBook book;
+TYPED_TEST(Books, CancelReportsWhatWasLeft) {
+  TypeParam book;
   run_all(book, {"new 1 sell limit 10 @ 101", "new 2 buy ioc 4 @ 101"});
   EXPECT_EQ(run(book, "cancel 1"), Lines{"cancelled 1 6 requested"});
   EXPECT_EQ(book.size(), 0U);
   EXPECT_EQ(run(book, "cancel 1"), Lines{"rejected 1 unknown-order"});
 }
 
-TEST(ReferenceBook, OnlyRestingOrdersCanBeCancelled) {
-  ReferenceBook book;
+TYPED_TEST(Books, OnlyRestingOrdersCanBeCancelled) {
+  TypeParam book;
   run_all(book, {"new 1 sell limit 3 @ 101", "new 2 buy limit 3 @ 101", "new 3 buy ioc 3 @ 100",
                  "new 4 buy market 1", "new 5 buy limit 0 @ 100"});
   EXPECT_EQ(run(book, "cancel 1"), Lines{"rejected 1 unknown-order"});  // filled
@@ -140,8 +151,8 @@ TEST(ReferenceBook, OnlyRestingOrdersCanBeCancelled) {
   EXPECT_EQ(run(book, "cancel 6"), Lines{"rejected 6 unknown-order"});  // never sent
 }
 
-TEST(ReferenceBook, ATakerSweepsLevelsBestFirstAtEachMakersPrice) {
-  ReferenceBook book;
+TYPED_TEST(Books, ATakerSweepsLevelsBestFirstAtEachMakersPrice) {
+  TypeParam book;
   run_all(book, {"new 1 buy limit 5 @ 98", "new 2 buy limit 5 @ 100", "new 3 buy limit 5 @ 99"});
   EXPECT_EQ(run(book, "new 4 sell limit 12 @ 98"),
             (Lines{"accepted 4", "trade 4 2 5 @ 100", "trade 4 3 5 @ 99", "trade 4 1 2 @ 98"}));

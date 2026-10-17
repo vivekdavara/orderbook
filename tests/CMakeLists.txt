@@ -1,10 +1,11 @@
 include(GoogleTest)
 
 add_executable(orderbook_tests
+  book_test.cpp
+  books_test.cpp
   check_test.cpp
   minimize_test.cpp
   random_flow_test.cpp
-  reference_book_test.cpp
   review/audit_accepts_zero_quantity_trade_test.cpp
   review/random_flow_unclamped_start_price_test.cpp
   review2/random_flow_double_spoil_breaks_two_rules_test.cpp

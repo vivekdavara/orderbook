@@ -10,20 +10,11 @@
 
 #include "orderbook/command.hpp"
 #include "orderbook/event.hpp"
+#include "orderbook/resting_order.hpp"
 #include "orderbook/text.hpp"
 #include "orderbook/types.hpp"
 
 namespace orderbook {
-
-// A resting order as a book reports it.
-struct RestingOrder {
-  OrderId id;
-  Side side = Side::Buy;
-  Price price;
-  Quantity remaining;
-
-  bool operator==(const RestingOrder&) const = default;
-};
 
 class ReferenceBook {
  public:

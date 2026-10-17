@@ -28,7 +28,9 @@ if(ORDERBOOK_FUZZ)
   add_compile_options(-fsanitize=fuzzer-no-link)
 endif()
 
+# The engine: the book itself, its vocabulary types and their text form.
 add_library(orderbook
+  src/book.cpp
   src/text.cpp
   src/types.cpp)
 add_library(orderbook::orderbook ALIAS orderbook)
