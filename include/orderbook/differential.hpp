@@ -185,8 +185,9 @@ StreamDifference diff_random_stream(std::uint64_t seed, const FlowOptions& optio
     if (!what && (i == count || (state_every > 0 && i % state_every == 0))) what = books.compare();
     if (what) {
       result.commands = i;
-      result.difference = Difference{static_cast<std::size_t>(i - 1), in_events,
-                                     (in_events ? "command " : "after command ") + std::to_string(i) + ": " + *what};
+      // No cast: uint64_t is size_t on Linux (GCC's -Wuseless-cast), and the same width on macOS.
+      result.difference =
+          Difference{i - 1, in_events, (in_events ? "command " : "after command ") + std::to_string(i) + ": " + *what};
       break;
     }
   }
@@ -196,7 +197,7 @@ StreamDifference diff_random_stream(std::uint64_t seed, const FlowOptions& optio
   }
   RandomFlow again(seed, options);
   std::vector<Command> commands;
-  commands.reserve(static_cast<std::size_t>(result.commands));
+  commands.reserve(result.commands);
   for (std::uint64_t i = 0; i < result.commands; ++i) commands.push_back(again.next());
   result.scenario = shrink_to_scenario<Expected, Actual>(commands);
   return result;
