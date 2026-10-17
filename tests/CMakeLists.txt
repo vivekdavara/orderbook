@@ -55,6 +55,40 @@ add_test(NAME cli.usage_is_printed_for_bad_arguments COMMAND orderbook_cli gen 1
 set_tests_properties(cli.usage_is_printed_for_bad_arguments PROPERTIES
   PASS_REGULAR_EXPRESSION "usage: orderbook .--book engine.reference. check FILE")
 
+# The tool built around a deliberately broken engine (the reference model reporting a trade a tick too high when its
+# maker has traded before; broken_books.hpp), to test the tool's own failure paths. diff must report the difference
+# and exit 1, and the scenario file it prints must pass on the reference model and fail on the broken engine, which is
+# also what runs without --book and with --book engine.
+add_executable(orderbook_cli_broken ${PROJECT_SOURCE_DIR}/tools/orderbook_cli.cpp)
+target_compile_definitions(orderbook_cli_broken PRIVATE
+  ORDERBOOK_CLI_ENGINE_HEADER="${CMAKE_CURRENT_SOURCE_DIR}/broken_books.hpp"
+  ORDERBOOK_CLI_ENGINE=orderbook::broken::BookWithAPriceBug)
+target_link_libraries(orderbook_cli_broken PRIVATE orderbook::testkit)
+orderbook_set_warnings(orderbook_cli_broken)
+# And around one whose events are right and whose depth leaves out a side's third level and beyond: diff sees it only
+# at a state checkpoint, so --every must reach the comparison. With a checkpoint after every command it is seen within
+# the first few hundred commands, not only at the end of the 2,000.
+add_executable(orderbook_cli_broken_depth ${PROJECT_SOURCE_DIR}/tools/orderbook_cli.cpp)
+target_compile_definitions(orderbook_cli_broken_depth PRIVATE
+  ORDERBOOK_CLI_ENGINE_HEADER="${CMAKE_CURRENT_SOURCE_DIR}/broken_books.hpp"
+  ORDERBOOK_CLI_ENGINE=orderbook::broken::BookWithShortDepth)
+target_link_libraries(orderbook_cli_broken_depth PRIVATE orderbook::testkit)
+orderbook_set_warnings(orderbook_cli_broken_depth)
+add_test(NAME cli.broken_depth.diff_compares_states_as_often_as_every_says
+  COMMAND orderbook_cli_broken_depth diff 3 2000 --target 50 --every 1)
+set_tests_properties(cli.broken_depth.diff_compares_states_as_often_as_every_says PROPERTIES
+  PASS_REGULAR_EXPRESSION
+  "the engine differs from the reference model: after command [0-9]?[0-9]?[0-9]: (bids|asks) depth")
+add_test(NAME cli.broken_engine.diff_reports_the_difference_then_the_shrunk_commands
+  COMMAND orderbook_cli_broken diff 12 3000 --target 100)
+set_tests_properties(cli.broken_engine.diff_reports_the_difference_then_the_shrunk_commands PROPERTIES
+  PASS_REGULAR_EXPRESSION
+  "the engine differs from the reference model: command [0-9]+: events: .*# The books disagree on these 3 commands")
+add_test(NAME cli.broken_engine.diffs_scenario_fails_the_engine_and_passes_the_reference
+  COMMAND sh -c "\"$1\" diff 12 3000 --target 100 > \"$2\" 2>/dev/null; test $? -eq 1 &&
+  \"$1\" --book reference check \"$2\" && ! \"$1\" check \"$2\" && ! \"$1\" --book engine check \"$2\"" sh
+          $<TARGET_FILE:orderbook_cli_broken> ${CMAKE_CURRENT_BINARY_DIR}/broken_engine_diff.txt)
+
 # The second day-1 review's reproductions of CLI bugs.
 include(${CMAKE_CURRENT_SOURCE_DIR}/review2/cli_tests.cmake)
 

@@ -37,9 +37,22 @@
 #include "orderbook/scenario.hpp"
 #include "orderbook/text.hpp"
 
+// The engine the tool runs. A test build (tests/CMakeLists.txt) puts a deliberately broken book here, so that the CLI
+// tests can check the tool's own failure paths: diff's report, its exit code and the scenario it prints, and that
+// --book runs the book it names.
+#ifdef ORDERBOOK_CLI_ENGINE_HEADER
+#include ORDERBOOK_CLI_ENGINE_HEADER
+#endif
+
 namespace {
 
 using namespace orderbook;
+
+#ifdef ORDERBOOK_CLI_ENGINE
+using Engine = ORDERBOOK_CLI_ENGINE;
+#else
+using Engine = Book;
+#endif
 
 constexpr int kUsageError = 2;
 
@@ -220,13 +233,13 @@ int audit(const FlowArgs& args) {
 // The reference model is the expected book and the engine the one under test. A difference is reported before the
 // shrinking starts, since a book with a memory error can crash during it.
 int diff(const FlowArgs& args) {
-  const StreamDifference result = diff_random_stream<ReferenceBook, Book>(args.seed, args.options, args.count,
+  const StreamDifference result = diff_random_stream<ReferenceBook, Engine>(args.seed, args.options, args.count,
                                                                          args.every);
   if (result.difference) {
-    std::cerr << "the engine differs from the reference model at " << result.difference->what << "\n"
+    std::cerr << "the engine differs from the reference model: " << result.difference->what << "\n"
               << "shrinking the " << result.commands << " commands to the ones it needs\n"
               << std::flush;
-    std::cout << shrink_random_stream<ReferenceBook, Book>(args.seed, args.options, result.commands);
+    std::cout << shrink_random_stream<ReferenceBook, Engine>(args.seed, args.options, result.commands);
     return 1;
   }
   std::cout << "commands " << result.commands << ": the same events from both books, and the same state every "
@@ -249,16 +262,16 @@ int main(int argc, char** argv) {
   if (args.empty()) return usage();
   const std::string& verb = args[0];
   const std::vector<std::string> rest(args.begin() + 1, args.end());
-  if (verb == "check") return engine ? check<Book>(rest) : check<ReferenceBook>(rest);
+  if (verb == "check") return engine ? check<Engine>(rest) : check<ReferenceBook>(rest);
   if (verb == "run") {
-    if (rest.empty()) return engine ? run<Book>(std::cin) : run<ReferenceBook>(std::cin);
+    if (rest.empty()) return engine ? run<Engine>(std::cin) : run<ReferenceBook>(std::cin);
     if (rest.size() > 1) return usage();
     std::ifstream in(rest[0]);
     if (!in) {
       std::cerr << rest[0] << ": can't read it\n";
       return 1;
     }
-    return engine ? run<Book>(in) : run<ReferenceBook>(in);
+    return engine ? run<Engine>(in) : run<ReferenceBook>(in);
   }
   if (verb == "gen" || verb == "audit" || verb == "diff") {
     const auto flow_args = parse_flow_args(rest, verb == "diff");
@@ -267,7 +280,7 @@ int main(int argc, char** argv) {
     try {
       if (verb == "gen") return gen(*flow_args);
       if (verb == "diff") return diff(*flow_args);
-      return engine ? audit<Book>(*flow_args) : audit<ReferenceBook>(*flow_args);
+      return engine ? audit<Engine>(*flow_args) : audit<ReferenceBook>(*flow_args);
     } catch (const std::invalid_argument& error) {  // options RandomFlow can't honour
       std::cerr << "orderbook: " << error.what() << "\n";
       return kUsageError;
