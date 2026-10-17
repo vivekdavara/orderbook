@@ -118,10 +118,18 @@ cancelled 2 5 requested
 rejected 2 unknown-order
 = bids
 = asks
+= orders bids
+= orders asks
+= best bids none
+= best asks none
+= resting 0
+= last-accepted 5
 ```
 
-The full rules, including validation (ids must increase; quantities and prices are 1 to 10^9) and what a rejection
-leaves unchanged (everything), are in DESIGN.md.
+The last eight lines are the book's state at the end: both sides' depth, then each side's orders, its best price, the
+number resting and the last accepted id, which `orderbook check` checks too. The full rules, including validation (ids
+must increase; quantities and prices are 1 to 10^9) and what a rejection leaves unchanged (everything), are in
+DESIGN.md.
 
 ## Build, test, run
 
@@ -150,8 +158,9 @@ build/dev/orderbook audit 1 100000 --target 500   # a random run with every inva
 build/dev/orderbook diff 1 1000000 --target 500   # the engine against the reference model, event for event
 ```
 
-`run`'s transcript is itself a scenario file, so a failing random case can be saved, cut down by hand, and kept as a
-test; each book passes the other's transcript of a random stream (two CLI tests). At `b0e54b2` (Debug build), the
+`run`'s transcript is itself a scenario file, ending with the book's whole state, so a failing random case can be
+saved, cut down by hand, and kept as a test; each book passes the other's transcript of a random stream, final queues
+and all (two CLI tests). At `b0e54b2` (Debug build), the
 `audit` line printed `commands 100000, accepted 57516, rejected 17972, trades 27713, cancelled 29176; resting at the
 end 325, at most 342` in 0.60 s on the engine (0.87 s on the reference model at `cdaf411`); most of the rejections are
 cancels of orders that had already filled. The `diff` line printed `commands 1000000: the same events from both books,

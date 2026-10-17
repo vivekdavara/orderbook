@@ -114,14 +114,6 @@ int check(const std::vector<std::string>& files) {
 }
 
 template <typename AnyBook>
-void print_depth(const AnyBook& book) {
-  for (const Side side : {Side::Buy, Side::Sell}) {
-    const std::string levels = format(book.depth(side));
-    std::cout << (side == Side::Buy ? "= bids" : "= asks") << (levels.empty() ? "" : " ") << levels << "\n";
-  }
-}
-
-template <typename AnyBook>
 int run(std::istream& in) {
   AnyBook book;
   std::vector<Event> events;
@@ -147,9 +139,9 @@ int run(std::istream& in) {
     std::cout << "> " << format(*command) << "\n";
     for (const Event& event : events) std::cout << format(event) << "\n";
   }
-  // A scenario file's depth checks belong to a command, so with no commands there is nothing to print: an empty
-  // transcript is an empty scenario file, which check passes.
-  if (commands > 0) print_depth(book);
+  // A scenario file's depth and state checks belong to a command, so with no commands there is nothing to print: an
+  // empty transcript is an empty scenario file, which check passes.
+  if (commands > 0) std::cout << state_lines(book);
   return 0;
 }
 

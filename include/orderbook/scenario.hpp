@@ -10,6 +10,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 #include "orderbook/command.hpp"
@@ -68,6 +69,24 @@ StateCheck observe(const Book& book, const StateCheck& check) {
       break;
   }
   return seen;
+}
+
+// A book's whole state as the lines a scenario file checks it with: both sides' depth, then each side's orders and
+// best price, the number resting and the last accepted id. `orderbook run` ends its transcripts with them.
+template <typename Book>
+std::string state_lines(const Book& book) {
+  std::string text;
+  for (const Side side : {Side::Buy, Side::Sell}) {
+    const std::string levels = format(book.depth(side));
+    text += std::string(side == Side::Buy ? "= bids" : "= asks") + (levels.empty() ? "" : " ") + levels + "\n";
+  }
+  using Kind = StateCheck::Kind;
+  for (const auto& [kind, side] : {std::pair{Kind::Orders, Side::Buy}, std::pair{Kind::Orders, Side::Sell},
+                                   std::pair{Kind::BestPrice, Side::Buy}, std::pair{Kind::BestPrice, Side::Sell},
+                                   std::pair{Kind::Resting, Side::Buy}, std::pair{Kind::LastAccepted, Side::Buy}}) {
+    text += format(observe(book, StateCheck{0, kind, side, std::nullopt, {}, 0})) + "\n";
+  }
+  return text;
 }
 
 struct ScenarioStep {
