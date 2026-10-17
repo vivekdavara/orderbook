@@ -10,6 +10,7 @@
 // that file and the expected one passes it, so saved under tests/scenarios/ it becomes a regression test.
 
 #include <cstddef>
+#include <cstdint>
 #include <optional>
 #include <string>
 #include <vector>
@@ -18,6 +19,7 @@
 #include "orderbook/command.hpp"
 #include "orderbook/event.hpp"
 #include "orderbook/minimize.hpp"
+#include "orderbook/random_flow.hpp"
 #include "orderbook/resting_order.hpp"
 #include "orderbook/text.hpp"
 #include "orderbook/types.hpp"
@@ -159,6 +161,45 @@ std::string shrink_to_scenario(const std::vector<Command>& commands) {
                               " commands, shrunk from " + std::to_string(commands.size()) +
                               ".\n# Each command's events are the expected book's.\n";
   return differential_scenario<Expected, Actual>(shrunk, heading);
+}
+
+struct StreamDifference {
+  std::uint64_t commands = 0;  // commands run: all of them, or up to and including the first difference
+  std::optional<Difference> difference;
+  std::string scenario;  // when they differed, the shrunk commands as a scenario file (shrink_to_scenario)
+};
+
+// Runs `count` commands of RandomFlow(seed, options) through both books, comparing every command's events, and the
+// states every `state_every` commands (never, if 0) and after the last. Nothing is kept as it runs, so the stream
+// can be as long as wanted: on a difference, the same seed makes the same commands again up to it, and those are
+// shrunk. What `orderbook diff` runs.
+template <typename Expected, typename Actual>
+StreamDifference diff_random_stream(std::uint64_t seed, const FlowOptions& options, std::uint64_t count,
+                                    std::uint64_t state_every) {
+  StreamDifference result;
+  RandomFlow flow(seed, options);
+  Lockstep<Expected, Actual> books;
+  for (std::uint64_t i = 1; i <= count; ++i) {
+    std::optional<std::string> what = books.apply(flow.next());
+    const bool in_events = what.has_value();
+    if (!what && (i == count || (state_every > 0 && i % state_every == 0))) what = books.compare();
+    if (what) {
+      result.commands = i;
+      result.difference = Difference{static_cast<std::size_t>(i - 1), in_events,
+                                     (in_events ? "command " : "after command ") + std::to_string(i) + ": " + *what};
+      break;
+    }
+  }
+  if (!result.difference) {
+    result.commands = count;
+    return result;
+  }
+  RandomFlow again(seed, options);
+  std::vector<Command> commands;
+  commands.reserve(static_cast<std::size_t>(result.commands));
+  for (std::uint64_t i = 0; i < result.commands; ++i) commands.push_back(again.next());
+  result.scenario = shrink_to_scenario<Expected, Actual>(commands);
+  return result;
 }
 
 }  // namespace orderbook

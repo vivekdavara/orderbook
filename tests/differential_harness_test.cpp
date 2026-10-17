@@ -124,6 +124,42 @@ TEST(Differential, ABugTheStateShowsFirstStillShrinksToEventsThatShowIt) {
   EXPECT_FALSE(passes<broken::BookWithNewestFirstQueues>(scenario)) << scenario;
 }
 
+TEST(Differential, ARandomStreamRunsToItsEndWhenTheBooksAgree) {
+  const StreamDifference result =
+      diff_random_stream<ReferenceBook, ReferenceBook>(6, FlowOptions{.target_resting = 100}, 10'000, 100);
+  EXPECT_EQ(result.commands, 10'000U);
+  EXPECT_FALSE(result.difference.has_value());
+  EXPECT_EQ(result.scenario, "");
+}
+
+TEST(Differential, ARandomStreamStopsAtTheFirstDifferenceAndShrinksIt) {
+  const FlowOptions options{.target_resting = 100};
+  const StreamDifference result = diff_random_stream<ReferenceBook, broken::BookWithAPriceBug>(12, options, 3'000, 100);
+  ASSERT_TRUE(result.difference.has_value());
+  // It stopped where first_difference stops on the same commands, made again from the seed.
+  const std::vector<Command> commands = random_commands(12, 3'000, options);
+  const auto expected = first_difference<ReferenceBook, broken::BookWithAPriceBug>(commands, 100);
+  ASSERT_TRUE(expected.has_value());
+  EXPECT_EQ(result.difference->index, expected->index);
+  EXPECT_EQ(result.difference->what, expected->what);
+  EXPECT_EQ(result.commands, expected->index + 1);
+  EXPECT_NE(result.scenario.find("# The books disagree on these 3 commands, shrunk from " +
+                                 std::to_string(result.commands) + ".\n"),
+            std::string::npos)
+      << result.scenario;
+  EXPECT_FALSE(passes<broken::BookWithAPriceBug>(result.scenario)) << result.scenario;
+}
+
+TEST(Differential, ARandomStreamFindsAStateDifferenceAtACheckpoint) {
+  const StreamDifference result =
+      diff_random_stream<ReferenceBook, broken::BookWithShortDepth>(3, FlowOptions{.target_resting = 50}, 2'000, 10);
+  ASSERT_TRUE(result.difference.has_value());
+  EXPECT_FALSE(result.difference->in_events);
+  EXPECT_EQ(result.commands % 10, 0U);  // found at a checkpoint
+  EXPECT_NE(result.difference->what.find("after command "), std::string::npos) << result.difference->what;
+  EXPECT_FALSE(passes<broken::BookWithShortDepth>(result.scenario)) << result.scenario;
+}
+
 TEST(Differential, WritesTheExpectedBooksEventsAndDepth) {
   const std::vector<Command> commands =
       parse_lines({"new 1 sell limit 10 @ 101", "new 2 buy limit 4 @ 101", "new 3 buy ioc 7 @ 101"});
