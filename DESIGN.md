@@ -3,7 +3,7 @@
 A limit order book for one instrument and the matching engine that runs it. Clients send commands (new orders and
 cancels); the engine answers each command with a list of events (acceptances, rejections, trades, cancellations).
 This document is the specification: the rules below are what the reference model implements literally and what the
-real engine (day 2) must reproduce event for event.
+engine (`Book`, day 2) reproduces event for event.
 
 ## Goals and non-goals
 
@@ -111,7 +111,8 @@ place with 5 lots left. Had order 3 been a limit order for 25, it would have tak
 
 ## Invariants
 
-The tests check each of these, on the reference model now and on the engine from day 2.
+The tests check each of these on both books: the reference model, and the engine (directly, and through the
+differential tests, which compare the two books' events after every command and their states at checkpoints).
 
 - **I1, uncrossed.** After every command, if both sides are non-empty, the best bid is below the best ask. (Equal
   is impossible too: an order at the other side's best price would have traded.)
@@ -182,17 +183,29 @@ was expected, what happened, and the line.
 That makes a fill O(n) in the number of resting orders, which is fine for an oracle: the differential tests run it
 on books of hundreds to thousands of orders. It is never the thing that gets optimised.
 
-## The engine (plan for days 2 and 3)
+## The engine
 
-Day 2's engine is the conventional design, and day 3 makes it fast without changing a single event:
+Day 2's engine (`include/orderbook/book.hpp`) is the conventional design, and day 3 makes it fast without changing a
+single event:
 
-- Each side is a sorted map from price to level; each level is a FIFO list of orders; a hash map from order id to
-  the order's node makes a cancel O(1). Matching takes the best level, walks its list from the front, and drops
-  the level when it empties.
-- Day 3: orders as nodes of intrusive doubly-linked lists, allocated from a pool sized up front, so the hot path
-  never calls `new`; levels in a structure that keeps the best price cheap to find (most activity is near the top
-  of the book); an open-addressing id table. Each change is measured before and after.
-- Events go to a sink the caller provides, so the engine itself never allocates per event.
+- **Day 2, built.** Each side is a `std::map` from price to level, ordered best first by one comparator type for
+  both sides (`BetterPrice{side}`), so both sides are the same map type. Each level is a `std::list` of its orders,
+  oldest first, with the level's total quantity kept as orders fill and cancel. A `std::unordered_map` from order id
+  to the order's level and list node (two iterators) makes a cancel O(1) amortised. Matching takes the first level,
+  trades with its queue from the front, erases each maker it fills from the index and the queue, and erases the
+  level when it empties; a limit order's remainder goes to the back of its level (made if new). Validation is the
+  engine's own code, not shared with the reference model. The book is move-only: a copy would need its index rebuilt
+  for its own nodes, and a member-wise copy would point into the original.
+- **What day 2 costs.** At 7 resting orders the engine did 20.4M commands/s against the reference model's 86.0M, and
+  at 5,410 it did 18.9M against 516k (README, "Results (day 2)"): flat in the book's size, but slower than a vector
+  scan on small books, because each order that rests allocates a list node and a hash node (and a new level a map
+  node), and matching follows pointers through all three.
+- **Day 3, the plan.** Orders as nodes of intrusive doubly-linked lists, allocated from a pool sized up front, so the
+  hot path never calls `new`; levels in a structure that keeps the best price cheap to find (most activity is near
+  the top of the book); an open-addressing id table. Each change is measured before and after, and checked by the
+  same differential tests.
+- Events go to a sink the caller provides, so the engine itself never allocates per event (day 3; day 2 appends to a
+  caller's vector, which allocates only while it grows).
 
 ## Architecture (the plan for day 4)
 
@@ -216,7 +229,7 @@ replay and L2 snapshots.
 
 - **Unit tests** for the types, the text format and each component.
 - **Scenario files** (`tests/scenarios/*.txt`), one or more per rule above, written by hand from this document, not
-  recorded from the code. They run against the reference model now and the engine from day 2.
+  recorded from the code. They run against the reference model and the engine.
 - **The Audit** (`check.hpp`) follows every command of long random runs and checks its events against its own record
   of the resting orders: validation and the order of its checks, I2, I3, I4, I6 and the order of the events. It
   shares none of the reference model's matching code (only the vocabulary types, their bounds and `opposite`), so it
@@ -227,25 +240,32 @@ replay and L2 snapshots.
   (Linux) and libc++ (macOS), and the same seed must give the same stream on both CI runners. A spoiled order breaks
   one rule or two, and is sometimes sent again at once, fixed, under the same id, so random runs exercise the order
   of the checks and I6.
-- **Differential tests** (day 2): random command streams into the reference and the engine, comparing every event.
-  A disagreement is shrunk by `minimize` (ddmin) to the few commands that still show it.
+- **Differential tests** (`differential.hpp`, `differential_test.cpp`): random command streams through the reference
+  model and the engine in lockstep, comparing every command's events, and the books' states (each side's orders,
+  depth and best price, the number resting, the last accepted id) at checkpoints. Seven mixes, 720,000 commands, in
+  every `make check`; `orderbook diff SEED COUNT` runs any number more. A disagreement is shrunk by `minimize` (ddmin)
+  to a 1-minimal stream and written as a scenario file of the reference model's events, with a comment where the
+  engine differs. The shrinking keeps the kind of difference first seen: a difference in some command's events
+  shrinks to commands whose events still differ, so the engine fails the file. A difference only in the state
+  shrinks by the state; the file's depth lines then catch it unless it is in the order of a queue.
 - **Fuzzing.** CI runs two libFuzzer targets for 60 s each under the sanitizers: the text format (seeded with the
-  scenario files) and the book under the Audit. Elsewhere CTest runs them on fixed inputs. An input that crashes in
+  scenario files) and the books: the engine and the reference model in lockstep, their events and states compared
+  after every command, with the Audit and `check_book` on the engine. Elsewhere CTest runs them on fixed inputs. An input that crashes in
   CI is kept as the run's `fuzz-findings` artifact and replays with the standalone build
   (`build/dev/fuzz/book_fuzz <file>`).
 - **Sanitizers.** CI runs every test under AddressSanitizer and UndefinedBehaviorSanitizer.
 - **Coverage.** `make coverage` reports the tests' line and branch coverage of `src/` and `include/`.
 - **GCC before pushing.** `make gcc-check` compiles the project's files with Homebrew's GCC, since CI's GCC job flags
   warnings Clang doesn't give.
-- **Benchmarks** (Google Benchmark): commands per second for the reference model now, as the baseline the engine
-  has to beat; latency percentiles from day 3.
+- **Benchmarks** (Google Benchmark): commands per second for both books on the same commands against the same book
+  (the reference model is the baseline); latency percentiles from day 3.
 
 ## Plan
 
 | Day | Delivers |
 |---|---|
 | 1 | This design, the CMake scaffold, the types and text format, the reference model, scenario files, the random command generator and invariant checks (the Audit), a minimizer for failing runs, fuzz targets, the CLI, the benchmark harness, coverage, CI on Linux and macOS. |
-| 2 | The matching engine (price levels, FIFO per level, trade events), differential tests against the reference. |
+| 2 | The matching engine (price levels, FIFO per level, trade events), differential tests against the reference. Done. |
 | 3 | Performance: intrusive lists, object pools, no allocation on the hot path; a lock-free SPSC ring; benchmarks (orders/s, latency percentiles). |
 | 4 | Replay of a synthetic market-data stream, L2 snapshots, the TCP gateway (8107) with a load generator. |
 | 5 | Latency histograms, README with results, WALKTHROUGH.md, v1.0.0. |

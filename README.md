@@ -4,10 +4,13 @@ A limit order book and matching engine in C++20: price-time priority, with limit
 (IOC) and cancel orders, built to be checked against a written specification and then made fast without changing
 a single event.
 
-**Status: day 1 of 5.** The specification ([DESIGN.md](DESIGN.md)), the shared types and text format, the
-reference model that implements the rules literally, the test kit around it (scenario files, a seeded random
-command stream, invariant checks, a minimizer for failing runs, two fuzz targets), a command-line tool, the benchmark
-harness, coverage, and CI on Linux and macOS. The fast engine is day 2's work; it will run against everything here.
+**Status: day 2 of 5.** Day 1 built the specification ([DESIGN.md](DESIGN.md)), the shared types and text format,
+the reference model that implements the rules literally, and the test kit around it (scenario files, a seeded random
+command stream, invariant checks, a minimizer for failing runs, two fuzz targets, a command-line tool, benchmarks,
+coverage, CI on Linux and macOS). Day 2 adds the matching engine (`Book`: price levels in a map, a FIFO queue per
+level, an id index for cancels) and a differential harness that runs it against the reference model, comparing every
+event of 720,000 random commands in the tests (and as many as wanted from the CLI), and shrinks any disagreement to
+a scenario file. Day 3 makes the engine fast.
 
 ## Why it is built this way
 
@@ -28,18 +31,20 @@ to the best order by price and then arrival, at the right price, for the right q
 
 ## Architecture
 
-Day 1's pieces, and where the engine goes:
+How the engine is checked:
 
 ```mermaid
 flowchart LR
     S[Scenario files<br/>tests/scenarios/*.txt] --> R
-    F[RandomFlow<br/>seeded commands] --> R
-    F -. day 2 .-> E
-    R[ReferenceBook<br/>the oracle] -- events --> A[Audit<br/>checks every event]
-    R -- state --> C[check_book<br/>I1, I5]
-    E[Engine<br/>day 2] -. events, compared .-> R
-    E -. events .-> A
-    E -. state .-> C
+    S --> E
+    F[RandomFlow<br/>seeded commands] --> L
+    L{{Lockstep<br/>same commands}} --> R
+    L --> E
+    R[ReferenceBook<br/>the oracle] -- events, state --> D[Differential harness<br/>first difference]
+    E[Book<br/>the engine] -- events, state --> D
+    D -- on a difference --> M[minimize<br/>to a scenario file]
+    E -- events --> A[Audit<br/>checks every event]
+    E -- state --> C[check_book<br/>I1, I5]
 ```
 
 The target system (day 4) puts the engine on its own thread between a TCP gateway and two lock-free rings; DESIGN.md
@@ -50,23 +55,46 @@ has that diagram and the plan for each day.
 | `include/orderbook/types.hpp` | `Price` (ticks), `Quantity` (lots), `OrderId` as distinct types; sides; order types; the validation bounds |
 | `include/orderbook/command.hpp`, `event.hpp` | Commands (new order, cancel) and events (accepted, rejected, trade, cancelled) |
 | `include/orderbook/text.hpp` | The one-line text form of each, and depth (`101x10 100x5`) |
+| `include/orderbook/book.hpp`, `src/book.cpp` | The engine (`Book`) |
+| `include/orderbook/resting_order.hpp` | A resting order as both books report it |
 | `include/orderbook/reference_book.hpp` | The reference model |
 | `include/orderbook/scenario.hpp` | Scenario files: parse and run against any book |
 | `include/orderbook/random_flow.hpp` | The seeded random command stream |
 | `include/orderbook/check.hpp` | `check_book` and `Audit` |
 | `include/orderbook/minimize.hpp` | Shrinks a failing command stream to the commands the failure needs |
+| `include/orderbook/differential.hpp` | Two books in lockstep: the first difference, shrunk to a scenario file |
 | `tools/orderbook_cli.cpp` | The `orderbook` command-line tool |
 | `tests/`, `bench/`, `fuzz/` | GoogleTest suite and scenario files; Google Benchmark suite; libFuzzer targets |
 | `scripts/gcc_check.sh` | Compiles the project with Homebrew's GCC, to catch GCC-only warnings before CI does |
 
-The `orderbook` library will hold the engine and has no dependencies; `orderbook_testkit` holds the reference model
-and the checks, for tests, benchmarks and the tool.
+The `orderbook` library holds the engine and has no dependencies; `orderbook_testkit` holds the reference model and
+the checks, for tests, benchmarks and the tool.
+
+### The engine
+
+Each side is a `std::map` from price to that price's level, kept best first, so the best price is the map's first
+entry. Each level is a `std::list` of its orders in arrival order, with its total quantity kept as orders fill and
+cancel. An index (`std::unordered_map`) from order id to the order's place, an iterator to its level and one to its
+list node, makes a cancel O(1) amortised: no search for the order, none for its level.
+
+| Operation | Cost |
+|---|---|
+| New order that rests | O(log L) to find or make its level (L levels on its side), O(1) to queue it and index it |
+| A taker's fills | O(1) per maker filled or reached; O(1) amortised to drop each level it empties |
+| Cancel | O(1) amortised: the index finds the node, the list unlinks it, an emptied level is erased by iterator |
+| Best price | O(1): the first entry of the side's map |
+| Depth | O(L): one entry per level, from its kept total |
+
+`Book` is move-only: its index holds iterators into its own containers, so a member-wise copy would leave the copy's
+index pointing into the original (the copy constructor is deleted, and a test says so). Moving keeps them valid,
+since node-based containers hand over their nodes.
 
 ## The rules in one example
 
 Asks of 10 lots at 101 and 10 at 102; an IOC buy for 15 up to 102 takes order 1 at its price, 101, then 5 lots of
 order 2 at 102. A market sell for 25 finds only order 4's 20 lots, and the rest is cancelled. Order 2 then has 5 lots
-left to cancel; cancelling it again is rejected. This is the tool's real output:
+left to cancel; cancelling it again is rejected. This is the tool's real output, from the engine (the reference model
+gives the same transcript, byte for byte):
 
 ```
 $ printf 'new 1 sell limit 10 @ 101\nnew 2 sell limit 10 @ 102\nnew 3 buy ioc 15 @ 102\nnew 4 buy limit 20 @ 100\nnew 5 sell market 25\ncancel 2\ncancel 2\n' | build/dev/orderbook run
@@ -105,23 +133,29 @@ configure time as release tarballs pinned by SHA-256.
 make check
 ```
 
-Configures the `dev` preset (Debug, warnings as errors) into `build/dev`, builds everything, and runs the 104 tests.
+Configures the `dev` preset (Debug, warnings as errors) into `build/dev`, builds everything, and runs the 165 tests.
 `make asan` runs them under AddressSanitizer and UndefinedBehaviorSanitizer; `make bench` builds the `release`
 preset (-O3) and runs the benchmarks; `make coverage` reports the tests' line and branch coverage (Clang only);
 `make gcc-check` compiles the project's files with GCC 15, Debug and Release, warnings as errors.
 
-The command-line tool (`build/dev/orderbook`, using the reference model):
+The command-line tool (`build/dev/orderbook`; `check`, `run` and `audit` use the engine unless given
+`--book reference`):
 
 ```bash
 build/dev/orderbook check tests/scenarios/*.txt   # run scenario files; exit 1 on a mismatch
+build/dev/orderbook --book reference check tests/scenarios/*.txt   # the same on the reference model
 build/dev/orderbook gen 42 1000 | build/dev/orderbook run   # a random stream and what the book does with it
 build/dev/orderbook audit 1 100000 --target 500   # a random run with every invariant check on
+build/dev/orderbook diff 1 1000000 --target 500   # the engine against the reference model, event for event
 ```
 
 `run`'s transcript is itself a scenario file, so a failing random case can be saved, cut down by hand, and kept as a
-test. The last command printed `commands 100000, accepted 57516, rejected 17972, trades 27713, cancelled 29176;
-resting at the end 325, at most 342` in 0.87 s (Debug build, at `cdaf411`); most of the rejections are cancels of
-orders that had already filled.
+test; each book passes the other's transcript of a random stream (two CLI tests). At `b0e54b2` (Debug build), the
+`audit` line printed `commands 100000, accepted 57516, rejected 17972, trades 27713, cancelled 29176; resting at the
+end 325, at most 342` in 0.60 s on the engine (0.87 s on the reference model at `cdaf411`); most of the rejections are
+cancels of orders that had already filled. The `diff` line printed `commands 1000000: the same events from both books,
+and the same state every 1000 commands and at the end` in 3.72 s. On a difference, `diff` prints the shrunk commands
+as a scenario file and exits 1.
 
 ## When a random run fails
 
@@ -143,7 +177,56 @@ trade 1762 1754 40 @ 9944
 audit: command 3 'new 1762 buy market 40': 'trade 1762 1754 40 @ 9944': the maker's price is 9943
 ```
 
-Day 2's differential tests will report a disagreement between the engine and the reference model the same way.
+The differential harness reports a disagreement between two books the same way, as a scenario file of the expected
+book's events. To show what one looks like, the engine was broken on purpose: a resting order went to the front of
+its level instead of the back (`push_front` for `push_back`, which also left the index pointing at the wrong node).
+The default-mix test failed on all four seeds; seed 1's report, as the test printed it (code of `aebdffb`):
+
+```
+seed 1, command 7: events: expected 'cancelled 4 77 requested', actual 'cancelled 4 56 requested'
+# The books disagree on these 3 commands, shrunk from 7.
+# Each command's events are the expected book's.
+> new 3 sell limit 56 @ 10011
+accepted 3
+> new 4 sell limit 77 @ 10011
+accepted 4
+# the events agree, but then asks: expected '3:10011x56 4:10011x77', actual '4:10011x77 3:10011x56'
+> cancel 4
+cancelled 4 77 requested
+# but the book under test gave: cancelled 4 56 requested
+= bids
+= asks 10011x56
+```
+
+The broken engine fails that file and the reference model passes it, so saved under `tests/scenarios/` it would be a
+regression test. Before `cabaf95` the same failure shrank to the first two commands, whose events agree: the shrinking
+accepted any difference, and the queue's wrong order shows in the state one command before it shows in an event. Now a
+difference first seen in the events is shrunk to one that still shows in the events. A difference seen only in the
+state, as in the three mixes that compare states after every command, still shrinks by the state; if it is in the
+order of a queue, which depth lines don't show, the file's comment names it but the file passes.
+
+## Results (day 2)
+
+Both books on the same work, measured with `make bench` at `b0e54b2` (Google Benchmark, 5 repetitions, medians) on an
+Apple M3, macOS 26.6.2, Apple Clang 21 at -O3, at 10:34 on battery (21% to 20%, Low Power Mode off) during a video
+call, load average 8.9 to 15.7. Synthetic commands from `RandomFlow` (seed 42, the default mix): a warm-up fills a
+book to its size, then the same 10,000 commands are timed against it, for each book; the `resting` counters (7, 70,
+583, 5,410) show both started from the same book. Coefficients of variation were 4.1% at most.
+
+| Book held near | Resting at the start | Reference model | Per command | Engine | Per command | Engine ÷ reference |
+|---|---|---|---|---|---|---|
+| 10 | 7 | 86.0 M/s | 11.6 ns | 20.4 M/s | 49 ns | 0.24 |
+| 100 | 70 | 25.3 M/s | 40 ns | 20.9 M/s | 48 ns | 0.83 |
+| 1,000 | 583 | 4.40 M/s | 227 ns | 23.0 M/s | 43 ns | 5.2 |
+| 10,000 | 5,410 | 516 k/s | 1.94 µs | 18.9 M/s | 53 ns | 37 |
+
+The engine's cost per command stays between 43 and 53 ns from 7 orders to 5,410, where the reference model's grows
+with the book (it scans a side for every fill and cancel). But on small books the engine is slower: 4 times slower at
+7 orders, and still slower at 70. The reference model's whole side is then a few cache lines of a vector it scans
+without allocating, while the engine allocates a list node, a hash node and sometimes a map node for each order that
+rests, frees them as it fills and cancels, and follows pointers through all three. Taking that allocation and
+pointer-chasing off the hot path is day 3's work (intrusive lists, a pool, an open-addressing index), measured against
+these numbers on power.
 
 ## Results (day 1)
 
@@ -171,7 +254,7 @@ core's.
 
 ## Tests
 
-104 tests (`make check`), each a separate CTest test; CI runs them on four jobs and fuzzes on a fifth.
+165 tests (`make check`), each a separate CTest test; CI runs them on four jobs and fuzzes on a fifth.
 
 `make coverage` (Clang source-based coverage of `src/` and `include/` by everything CTest runs: the GoogleTest suite,
 and the CLI tests and fuzz runs, whose profiles are merged in), at `cdaf411`: 98.7% of lines (746 of 756), 97.3% of
@@ -185,14 +268,17 @@ branches. At `a900bb9`, 741 of 751 and 469 of 482; the second review found that 
 |---|---|
 | `types_test.cpp` | The strong types don't convert into each other; bounds are inclusive; the words round-trip |
 | `text_test.cpp` | Each command and event's exact text; strict parsing (20 malformed lines, each with its reason); 20,000 random commands, edge values included, parse back to themselves |
-| `reference_book_test.cpp` | The reference model's queries, the order of the validation checks, a rejection changing nothing, which orders can be cancelled |
-| `scenario_test.cpp` + `scenarios/*.txt` | Fourteen hand-written scripts, one or more per rule; the parser's and runner's error reports, with line numbers |
+| `books_test.cpp` | Both books (a typed suite): their queries, the order of the validation checks, a rejection changing nothing, which orders can be cancelled, a sweep through levels |
+| `book_test.cpp` | The engine's structure: levels that empty leave the book, a level's total, cancels from the front, middle and back of a queue, a partly filled maker keeps its place, a sweep through 1,000 levels, a moved book's index (under ASan too), and that `Book` can't be copied |
+| `scenario_test.cpp` + `scenarios/*.txt` | Fourteen hand-written scripts, one or more per rule, on both books; the parser's and runner's error reports, with line numbers |
+| `differential_test.cpp` | The engine against the reference model, every event of 720,000 random commands in seven mixes (the default, long queues at three prices, one-lot orders, quantities to 10^9 on a nearly empty book, 30% spoiled orders, a deep book of 900+ levels a side, prices at both bounds), states compared at checkpoints (after every command in three mixes); the engine's events under the Audit and its state under `check_book` too |
+| `differential_harness_test.cpp` | The harness itself, with deliberately broken books (`broken_books.hpp`): two reference models never differ; the first differing command is named; a state-only bug is found at a checkpoint; price, depth and time-priority bugs shrink to 3 commands each, in files the broken book fails; the streaming `diff` stops where `first_difference` does |
 | `random_flow_test.cpp` | Same seed same stream; a pinned hash of seed 1's first 100,000 commands, so Linux and macOS must agree; the documented mix on each side of the target; options it can't honour are refused; near either price bound every order sent valid is accepted; rejected orders resent under the same id are accepted, and some rejections break two rules; in a fully spoiled stream only resends are accepted, about half come back, and resent limit orders can be cancelled |
 | `check_test.cpp` | The reference model passes `Audit` and `check_book` over 160,000 random commands: four seeds of the default mix, and mixes with long queues at three prices (every check after every command), quantities up to 10^9 on a near-empty book, and 30% invalid orders; each check is shown to fail on events or a state that break its rule; a pinned hash of the reference model's events and book (I7) |
 | `review/*.cpp`, `review2/` | The two day-1 reviews' reproductions, kept as regression tests: 0-lot trades after a fill; a stream starting near a price bound; double spoils that broke one rule; an empty transcript `check` rejected |
 | `minimize_test.cpp` | The minimizer keeps exactly what a failure needs, in order, and is 1-minimal; 1,000 commands shrink in under 100 replays (56); random runs that catch two deliberately broken books shrink to 3 commands and to 1 |
-| CLI tests (`tests/CMakeLists.txt`) | `check` passes the scenarios and reports a wrong one with its line and the actual events; a 2,000-command transcript passes its own check, and so does an empty one; `audit` passes 20,000 commands; options out of range and bad arguments are reported; each exit code exactly (0, 1, 2) |
-| Fuzz targets (`fuzz/`, in CTest) | Both on 2,000 seeded random inputs each; the text target on the scenario files whole and on each of their 405 lines, so its round-trip checks run. CI's libFuzzer job runs each for 60 s instead: at `a900bb9`, 1,351,472 text inputs and 232,863 book inputs, no findings |
+| CLI tests (`tests/CMakeLists.txt`) | `check` passes the scenarios on both books and reports a wrong one with its line and the actual events; a 2,000-command transcript passes its own check, and so does an empty one; each book passes the other's transcript of 5,000 commands; `audit` passes 20,000 commands on each book; `diff` agrees on 100,000; options out of range and bad arguments are reported; each exit code exactly (0, 1, 2) |
+| Fuzz targets (`fuzz/`, in CTest) | Both on 2,000 seeded random inputs each; the text target on the scenario files whole and on each of their 405 lines, so its round-trip checks run. The book target runs both books in lockstep, comparing events and states after every command, with the Audit and `check_book` on the engine. CI's libFuzzer job runs each for 60 s instead: at `a900bb9` (the reference model alone), 1,351,472 text inputs and 232,863 book inputs, no findings |
 
 ## Review of day 1
 
@@ -240,7 +326,18 @@ that nothing bounded the minimizer's replays (`cdaf411`); its docs corrections a
 - **The order of the validation checks is part of the specification**, so two implementations agree on the reason
   for a rejection, not just on the rejection.
 - **A deliberately naive reference model** as the oracle, instead of trusting the engine's own unit tests: the
-  differential tests (day 2) compare every event, which no hand-written test can do at scale.
+  differential tests compare every event, which no hand-written test can do at scale. The engine shares none of its
+  code, not even validation, so a mistake copied into both can't hide.
+- **The conventional engine first.** Day 2's engine uses standard containers (a map of levels, a list per level, a
+  hash index), so its correctness is settled by the differential tests before day 3 changes its data structures for
+  speed, and every day-3 change is checked against the same tests.
+- **One comparator type for both sides** (`BetterPrice{side}`: higher first for bids, lower for asks). Bids and asks
+  are then the same map type, so the index holds one kind of iterator for either side and the matching code isn't a
+  template; the price of that is a branch on the side in each comparison.
+- **The index holds iterators, so `Book` is move-only.** A cancel never searches. A copy would need the index rebuilt
+  for the copy's own nodes; nothing needs a copy (the benchmark rebuilds its book from the warm-up instead).
+- **A difference is reported as a scenario file**, shrunk by ddmin, so a failure on a random stream of a million
+  commands becomes a few lines a person can read, run with `orderbook check`, and keep as a test.
 - **Its own random number generator.** `std::uniform_int_distribution` is implementation-defined, so the same seed
   gives different streams with libstdc++ and libc++; SplitMix64 with an unbiased bounded draw doesn't.
 - **Dependencies pinned by hash and runners pinned by version** (`ubuntu-24.04`, `macos-15`), so the build can't
@@ -257,8 +354,13 @@ that nothing bounded the minimizer's replays (`cdaf411`); its docs corrections a
 - One instrument per book; no order modification (cancel and re-enter), self-trade prevention, fill-or-kill, stop
   or iceberg orders, auctions, fees, persistence, or negative prices.
 - The reference model is O(n) per fill and cancel by design; it is not the engine.
-- The benchmark numbers above were measured on battery with other apps open; the engine's benchmarks (day 3) will
-  be measured on power with nothing else running.
+- Day 2's engine allocates on the hot path (a list node and a hash node for each order that rests, a map node for each
+  new level) and is slower than the reference model on books of fewer than about a hundred orders; day 3 removes the
+  allocation.
+- Scenario files check events and depth, not the order of a queue, so a difference only in a queue's order shrinks to
+  a file that names it in a comment but passes; the differential tests themselves still fail on it.
+- The benchmark numbers above were measured on battery with other apps open (day 2's during a video call); day 3's
+  are to be measured on power with nothing else running.
 
 ## License
 
