@@ -7,6 +7,7 @@
 #include <string_view>
 #include <vector>
 
+#include "orderbook/book.hpp"
 #include "orderbook/random_flow.hpp"
 #include "orderbook/reference_book.hpp"
 #include "orderbook/text.hpp"
@@ -61,13 +62,13 @@ TEST(Invariants, HoldWhenFewPricesMakeLongQueues) {
   run_checked({21, FlowOptions{.price_range = 3, .max_quantity = 20, .target_resting = 200}, 25'000, 1});
 }
 
-TEST(Invariants, TheReferenceModelsEventsAndBookAreTheSameOnEveryPlatform) {
-  // I7, recorded from this implementation: CI runs this with GCC and Clang on Linux and Apple Clang on macOS, in
-  // Debug and Release and under the sanitizers, so they must all produce exactly these events and this book.
+// FNV-1a over every event's line of seed 1's first 50,000 commands, then each side's orders at the end.
+template <typename AnyBook>
+std::uint64_t events_and_book_hash() {
   RandomFlow flow(1, FlowOptions{.target_resting = 300});
-  ReferenceBook book;
+  AnyBook book;
   std::vector<Event> events;
-  std::uint64_t hash = 0xcbf29ce484222325ULL;  // FNV-1a over every event's line, then each side's orders
+  std::uint64_t hash = 0xcbf29ce484222325ULL;
   const auto mix = [&hash](const std::string& line) {
     for (const char c : line + "\n") {
       hash ^= static_cast<unsigned char>(c);
@@ -80,7 +81,21 @@ TEST(Invariants, TheReferenceModelsEventsAndBookAreTheSameOnEveryPlatform) {
     for (const Event& event : events) mix(format(event));
   }
   for (const Side side : {Side::Buy, Side::Sell}) mix(describe(book.orders(side)));
-  EXPECT_EQ(hash, 0xc26f671e4e0c639ULL);
+  return hash;
+}
+
+// I7, recorded from the reference model on day 1: CI runs this with GCC and Clang on Linux and Apple Clang on macOS,
+// in Debug and Release and under the sanitizers, so they must all produce exactly these events and this book.
+constexpr std::uint64_t kPinnedHash = 0xc26f671e4e0c639ULL;
+
+TEST(Invariants, TheReferenceModelsEventsAndBookAreTheSameOnEveryPlatform) {
+  EXPECT_EQ(events_and_book_hash<ReferenceBook>(), kPinnedHash);
+}
+
+TEST(Invariants, TheEnginesEventsAndBookHashToTheSamePinnedValue) {
+  // The same hash from the engine, on every CI job: the engine is deterministic too (no iteration over its hash
+  // index decides anything), and agrees with the reference model on every one of these events.
+  EXPECT_EQ(events_and_book_hash<Book>(), kPinnedHash);
 }
 
 TEST(Invariants, HoldWithLargeQuantitiesAndANearlyEmptyBook) {

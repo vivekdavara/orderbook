@@ -126,7 +126,9 @@ differential tests, which compare the two books' events after every command and 
 - **I6, rejections change nothing** (Validation).
 - **I7, determinism.** The same commands give the same events and the same book, on Linux and macOS, with GCC and
   Clang, in Debug and Release. Tested by pinned hashes of a random stream and of the reference model's events and
-  book on it, which every CI job must reproduce.
+  book on it, which every CI job must reproduce; the engine must give the same hash of its events and book. (The
+  engine never iterates its hash index, whose order differs between standard libraries; only its maps and lists,
+  whose order is the book's.)
 
 ## The text format
 
