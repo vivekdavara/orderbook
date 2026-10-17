@@ -5,10 +5,10 @@
 #include <algorithm>
 #include <cstdint>
 #include <string>
-#include <unordered_map>
 #include <variant>
 #include <vector>
 
+#include "broken_books.hpp"
 #include "orderbook/check.hpp"
 #include "orderbook/random_flow.hpp"
 #include "orderbook/reference_book.hpp"
@@ -16,6 +16,9 @@
 
 namespace orderbook {
 namespace {
+
+using broken::BookThatDropsAnUnfilledMarketOrder;
+using broken::BookWithAPriceBug;
 
 std::vector<std::string> lines(const std::vector<Command>& commands) {
   std::vector<std::string> out;
@@ -84,43 +87,6 @@ TEST(Minimize, KeepsOrder) {
   std::swap(commands[2], commands[4]);  // ... 5, 4, 3 ...
   EXPECT_EQ(lines(minimize(commands, fails)), (std::vector<std::string>{"cancel 5", "cancel 3"}));
 }
-
-// The reference model with one deliberate bug, applied to its events: a trade with a maker that has already traded
-// once is reported a tick off its price. Finding it takes three commands: a resting order, a taker that fills part of
-// it, and a second taker.
-class BookWithAPriceBug {
- public:
-  void apply(const Command& command, std::vector<Event>& events) {
-    const std::size_t first = events.size();
-    book_.apply(command, events);
-    for (std::size_t i = first; i < events.size(); ++i) {
-      if (auto* trade = std::get_if<Trade>(&events[i]); trade != nullptr && trades_[trade->maker.value]++ > 0) {
-        trade->price.ticks += 1;
-      }
-    }
-  }
-
- private:
-  ReferenceBook book_;
-  std::unordered_map<std::uint64_t, int> trades_;
-};
-
-// And one that forgets to report a market order's unfilled remainder: one command is enough.
-class BookThatDropsAnUnfilledMarketOrder {
- public:
-  void apply(const Command& command, std::vector<Event>& events) {
-    const std::size_t first = events.size();
-    book_.apply(command, events);
-    const auto* order = std::get_if<NewOrder>(&command);
-    if (order != nullptr && order->type == OrderType::Market && events.size() > first &&
-        std::holds_alternative<Cancelled>(events.back())) {
-      events.pop_back();
-    }
-  }
-
- private:
-  ReferenceBook book_;
-};
 
 // Whether the Audit finds a problem when the commands run on a fresh Book.
 template <typename Book>
