@@ -15,7 +15,6 @@
 #include <cstdint>
 #include <optional>
 #include <string>
-#include <utility>
 #include <vector>
 
 #include "orderbook/check.hpp"
@@ -138,17 +137,7 @@ std::string differential_scenario(const std::vector<Command>& commands, const st
     }
   }
   if (commands.empty()) return text;
-  for (const Side side : {Side::Buy, Side::Sell}) {
-    const std::string levels = format(books.expected().depth(side));
-    text += std::string(side == Side::Buy ? "= bids" : "= asks") + (levels.empty() ? "" : " ") + levels + "\n";
-  }
-  using Kind = StateCheck::Kind;
-  for (const auto& [kind, side] : {std::pair{Kind::Orders, Side::Buy}, std::pair{Kind::Orders, Side::Sell},
-                                   std::pair{Kind::BestPrice, Side::Buy}, std::pair{Kind::BestPrice, Side::Sell},
-                                   std::pair{Kind::Resting, Side::Buy}, std::pair{Kind::LastAccepted, Side::Buy}}) {
-    text += format(observe(books.expected(), StateCheck{0, kind, side, std::nullopt, {}, 0})) + "\n";
-  }
-  return text;
+  return text + state_lines(books.expected());
 }
 
 // Shrinks a stream the two books disagree on to a 1-minimal one (every command needed), and writes that as a

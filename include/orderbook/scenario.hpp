@@ -72,7 +72,8 @@ StateCheck observe(const Book& book, const StateCheck& check) {
 }
 
 // A book's whole state as the lines a scenario file checks it with: both sides' depth, then each side's orders and
-// best price, the number resting and the last accepted id. `orderbook run` ends its transcripts with them.
+// best price, the number resting and the last accepted id. `orderbook run` ends its transcripts with them, and the
+// differential harness the scenario files it writes.
 template <typename Book>
 std::string state_lines(const Book& book) {
   std::string text;
