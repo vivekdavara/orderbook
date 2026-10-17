@@ -203,6 +203,15 @@ commands: two asks at one price, then a cancel of the second, which the broken e
 quantity, because its index pointed at the wrong node. The broken engine fails the file; saved under
 `tests/scenarios/`, it is a regression test.
 
+**What if the engine has a memory error? Would the differential tests see it?**
+Usually, but not always as a difference. Running `make soak` on the time-priority mutant (whose index pointed at the
+wrong list nodes, so cancels freed nodes other entries still pointed to), all 24 runs failed, but three crashed. Two
+crashed while shrinking, which replays the broken book hundreds of times, so `diff` now prints the difference before
+it shrinks. One crashed before any event differed: two makers had the same quantity, so a cancel of the wrong node
+produced the right event, and a later cancel used a freed node. Undefined behaviour can't be diffed reliably; that is
+what the sanitizer build is for, and it named the line (`build/asan/orderbook diff 2 ...`: heap-use-after-free in
+`Book::cancel`). CI runs every differential test under ASan and UBSan for that reason.
+
 **Tell me about a bug in the differential harness.**
 It came from that same deliberate mutation. The first version shrank by "the books differ in any way", events or
 final state. A wrong queue order shows in the state one command before it shows in an event, so ddmin kept the two

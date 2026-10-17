@@ -243,13 +243,14 @@ replay and L2 snapshots.
   one rule or two, and is sometimes sent again at once, fixed, under the same id, so random runs exercise the order
   of the checks and I6.
 - **Differential tests** (`differential.hpp`, `differential_test.cpp`): random command streams through the reference
-  model and the engine in lockstep, comparing every command's events, and the books' states (each side's orders,
-  depth and best price, the number resting, the last accepted id) at checkpoints. Seven mixes, 720,000 commands, in
-  every `make check`; `orderbook diff SEED COUNT` runs any number more. A disagreement is shrunk by `minimize` (ddmin)
-  to a 1-minimal stream and written as a scenario file of the reference model's events, with a comment where the
-  engine differs. The shrinking keeps the kind of difference first seen: a difference in some command's events
-  shrinks to commands whose events still differ, so the engine fails the file. A difference only in the state
-  shrinks by the state; the file's depth lines then catch it unless it is in the order of a queue.
+  model and the engine in lockstep, comparing every command's events, and the books' states (each side's orders, depth
+  and best price, the number resting, the last accepted id) at checkpoints. Seven mixes, 720,000 commands, in every
+  `make check`; `orderbook diff SEED COUNT` runs any number more, and `make soak` runs 1.04 billion in six mixes. A
+  disagreement is shrunk by `minimize` (ddmin) to a 1-minimal stream and written as a scenario file of the reference
+  model's events, with a comment where the engine differs. The shrinking keeps the kind of difference first seen: a
+  difference in some command's events shrinks to commands whose events still differ, so the engine fails the file. A
+  difference only in the state shrinks by the state; the file's depth lines then catch it unless it is in the order of a
+  queue.
 - **Fuzzing.** CI runs two libFuzzer targets for 60 s each under the sanitizers: the text format (seeded with the
   scenario files) and the books: the engine and the reference model in lockstep, their events and states compared after
   every command, with the Audit and `check_book` on the engine. Elsewhere CTest runs them on fixed inputs. An input that
