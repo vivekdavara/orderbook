@@ -6,13 +6,16 @@
 //
 // A disagreement on a long random stream is shrunk with minimize() to the few commands that still show it, and
 // written out as a scenario file: each command with the expected book's events, a comment with what the other book
-// did differently, and the expected depth at the end. When the books' events differed, the book under test fails
-// that file and the expected one passes it, so saved under tests/scenarios/ it becomes a regression test.
+// did differently, and at the end the expected book's depth and the rest of its state (each side's orders and best
+// price, the number resting, the last accepted id). Those are everything state_difference compares, so the book
+// under test fails the file and the expected one passes it, whether the difference was in an event or only in the
+// state; saved under tests/scenarios/, the file becomes a regression test.
 
 #include <cstddef>
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "orderbook/check.hpp"
@@ -21,6 +24,7 @@
 #include "orderbook/minimize.hpp"
 #include "orderbook/random_flow.hpp"
 #include "orderbook/resting_order.hpp"
+#include "orderbook/scenario.hpp"
 #include "orderbook/text.hpp"
 #include "orderbook/types.hpp"
 
@@ -117,7 +121,8 @@ std::optional<Difference> first_difference(const std::vector<Command>& commands,
   return std::nullopt;
 }
 
-// Writes commands as a scenario file of the expected book's events, noting where the other book differs.
+// Writes commands as a scenario file of the expected book's events, noting where the other book differs, and ends
+// it with checks of the expected book's whole state.
 template <typename Expected, typename Actual>
 std::string differential_scenario(const std::vector<Command>& commands, const std::string& heading) {
   Lockstep<Expected, Actual> books;
@@ -136,6 +141,12 @@ std::string differential_scenario(const std::vector<Command>& commands, const st
   for (const Side side : {Side::Buy, Side::Sell}) {
     const std::string levels = format(books.expected().depth(side));
     text += std::string(side == Side::Buy ? "= bids" : "= asks") + (levels.empty() ? "" : " ") + levels + "\n";
+  }
+  using Kind = StateCheck::Kind;
+  for (const auto& [kind, side] : {std::pair{Kind::Orders, Side::Buy}, std::pair{Kind::Orders, Side::Sell},
+                                   std::pair{Kind::BestPrice, Side::Buy}, std::pair{Kind::BestPrice, Side::Sell},
+                                   std::pair{Kind::Resting, Side::Buy}, std::pair{Kind::LastAccepted, Side::Buy}}) {
+    text += format(observe(books.expected(), StateCheck{0, kind, side, std::nullopt, {}, 0})) + "\n";
   }
   return text;
 }

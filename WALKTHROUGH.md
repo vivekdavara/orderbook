@@ -197,11 +197,12 @@ minimum book size, so a stream that stopped building a book fails. The engine's 
 its state through `check_book`, and `orderbook diff SEED COUNT` runs any number more (1,000,000 in 3.7 s, Debug).
 
 **What does a failing differential test print?**
-A scenario file: the shrunk commands, each with the reference model's events, a comment where the engine's differ,
-and the expected depth at the end. Breaking the engine on purpose (new orders to the front of their level) gives three
-commands: two asks at one price, then a cancel of the second, which the broken engine reports with the first one's
-quantity, because its index pointed at the wrong node. The broken engine fails the file; saved under
-`tests/scenarios/`, it is a regression test.
+A scenario file: the shrunk commands, each with the reference model's events, a comment where the engine's differ, and
+at the end the expected depth and the rest of the state (each side's orders and best price, the number resting, the last
+accepted id), so the engine fails the file whichever part differed. Breaking the engine on purpose (new orders to the
+front of their level) gives three commands: two asks at one price, then a cancel of the second, which the broken engine
+reports with the first one's quantity, because its index pointed at the wrong node. The broken engine fails the file;
+saved under `tests/scenarios/`, it is a regression test.
 
 **What if the engine has a memory error? Would the differential tests see it?**
 Usually, but not always as a difference. Running `make soak` on the time-priority mutant (whose index pointed at the

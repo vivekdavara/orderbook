@@ -143,6 +143,16 @@ std::string format(const std::vector<Level>& levels) {
   return text;
 }
 
+std::string format(const std::vector<RestingOrder>& orders) {
+  std::string text;
+  for (const RestingOrder& order : orders) {
+    if (!text.empty()) text += ' ';
+    text += std::to_string(order.id.value) + ":" + std::to_string(order.price.ticks) + "x" +
+            std::to_string(order.remaining.lots);
+  }
+  return text;
+}
+
 std::optional<Command> parse_command(std::string_view line, std::string* error) {
   const std::vector<std::string_view> words = split_words(line);
   if (words.empty()) return fail<Command>(error, "empty command");
@@ -171,6 +181,25 @@ std::optional<std::vector<Level>> parse_levels(std::string_view text, std::strin
     levels.push_back(Level{Price{*price}, Quantity{*quantity}});
   }
   return levels;
+}
+
+std::optional<std::vector<RestingOrder>> parse_orders(std::string_view text, Side side, std::string* error) {
+  std::vector<RestingOrder> orders;
+  for (const std::string_view word : split_words(text)) {
+    const std::size_t colon = word.find(':');
+    const std::size_t x = word.find('x', colon == std::string_view::npos ? 0 : colon);
+    const auto bad = [&] {
+      return fail<std::vector<RestingOrder>>(error,
+                                             "bad order " + quoted(word) + ", expected <id>:<price>x<remaining>");
+    };
+    if (colon == std::string_view::npos || x == std::string_view::npos) return bad();
+    const auto id = parse_int<std::uint64_t>(word.substr(0, colon));
+    const auto price = parse_int<std::int64_t>(word.substr(colon + 1, x - colon - 1));
+    const auto remaining = parse_int<std::int64_t>(word.substr(x + 1));
+    if (!id || !price || !remaining) return bad();
+    orders.push_back(RestingOrder{OrderId{*id}, side, Price{*price}, Quantity{*remaining}});
+  }
+  return orders;
 }
 
 void PrintTo(const Command& command, std::ostream* out) { *out << format(command); }

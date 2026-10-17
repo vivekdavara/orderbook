@@ -166,11 +166,20 @@ accepted 1
 = asks 101x10
 # And this side must be empty.
 = bids
+# The rest of the book's state: a side's orders in priority order (id:price x remaining), its best price (or none),
+# the number of orders resting on both sides, and the last accepted id.
+= orders asks 1:101x10
+= best asks 101
+= best bids none
+= resting 1
+= last-accepted 1
 ```
 
 A command's expected events are every event line up to the next command, so a command with no event lines must
-produce no events. Depth checks are optional. The runner stops at the first step that doesn't match and reports what
-was expected, what happened, and the line.
+produce no events. Depth and state checks are optional, and come after the step's events. The hand-written files use
+depth checks; the differential harness ends each file it writes with every state check, so that a file pins
+everything the harness compares. The runner stops at the first step that doesn't match and reports what was
+expected, what happened, and the line.
 
 ## The reference model
 
@@ -249,8 +258,8 @@ replay and L2 snapshots.
   disagreement is shrunk by `minimize` (ddmin) to a 1-minimal stream and written as a scenario file of the reference
   model's events, with a comment where the engine differs. The shrinking keeps the kind of difference first seen: a
   difference in some command's events shrinks to commands whose events still differ, so the engine fails the file. A
-  difference only in the state shrinks by the state; the file's depth lines then catch it unless it is in the order of a
-  queue.
+  difference only in the state shrinks by the state. The file ends with checks of the reference model's whole state
+  (each side's orders and best price, the number resting, the last accepted id), so the engine fails it either way.
 - **Fuzzing.** CI runs two libFuzzer targets for 60 s each under the sanitizers: the text format (seeded with the
   scenario files) and the books: the engine and the reference model in lockstep, their events and states compared after
   every command, with the Audit and `check_book` on the engine. Elsewhere CTest runs them on fixed inputs. An input that

@@ -12,6 +12,7 @@
 
 #include "orderbook/command.hpp"
 #include "orderbook/event.hpp"
+#include "orderbook/resting_order.hpp"
 #include "orderbook/types.hpp"
 
 namespace orderbook {
@@ -33,12 +34,16 @@ std::string format(const Command& command);
 std::string format(const Event& event);
 // "101x10 100x5": levels best first, separated by spaces; empty for an empty side.
 std::string format(const std::vector<Level>& levels);
+// "3:101x5 4:101x2": resting orders as id:price x remaining, separated by spaces; empty for none.
+std::string format(const std::vector<RestingOrder>& orders);
 
 // Parses one command line. Words are separated by spaces or tabs. On failure returns nullopt and, if `error` is
 // given, says what was wrong.
 std::optional<Command> parse_command(std::string_view line, std::string* error = nullptr);
 // Parses the levels of a depth line, the format() of a vector of levels.
 std::optional<std::vector<Level>> parse_levels(std::string_view text, std::string* error = nullptr);
+// Parses the format() of resting orders, all on `side` (the text doesn't name it).
+std::optional<std::vector<RestingOrder>> parse_orders(std::string_view text, Side side, std::string* error = nullptr);
 
 // Let GoogleTest print commands, events and levels in their text form when an assertion fails.
 void PrintTo(const Command& command, std::ostream* out);

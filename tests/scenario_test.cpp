@@ -9,6 +9,7 @@
 #include <sstream>
 #include <string>
 #include <system_error>
+#include <utility>
 #include <vector>
 
 #include "orderbook/book.hpp"
@@ -118,10 +119,19 @@ TEST(Scenario, RejectsMalformedFilesNamingTheLine) {
       {"# x\n= bids\n", "line 2: an expectation before any command"},
       {"> new 1 buy limit 10\n", "line 1: limit orders need '@ <price>'"},
       {"> bogus\n", "line 1: unknown command 'bogus'"},
-      {"> new 1 buy limit 1 @ 1\n= buys 1x1\n", "line 2: expected '= bids ...' or '= asks ...'"},
-      {"> new 1 buy limit 1 @ 1\n=\n", "line 2: expected '= bids ...' or '= asks ...'"},
+      {"> new 1 buy limit 1 @ 1\n= buys 1x1\n", "line 2: expected '= bids ...', '= asks ...', '= best ...'"},
+      {"> new 1 buy limit 1 @ 1\n=\n", "line 2: expected '= bids ...', '= asks ...', '= best ...'"},
+      {"> new 1 buy limit 1 @ 1\n= best buys 1\n", "line 2: expected '= best bids ...' or '= best asks ...'"},
+      {"> new 1 buy limit 1 @ 1\n= best bids\n", "line 2: bad best price '', expected a price or 'none'"},
+      {"> new 1 buy limit 1 @ 1\n= best bids 1.5\n", "line 2: bad best price '1.5'"},
+      {"> new 1 buy limit 1 @ 1\n= orders asks 1:100\n", "line 2: bad order '1:100', expected <id>:<price>x"},
+      {"> new 1 buy limit 1 @ 1\n= orders asks 100x1\n", "line 2: bad order '100x1'"},
+      {"> new 1 buy limit 1 @ 1\n= orders bids -1:100x1\n", "line 2: bad order '-1:100x1'"},
+      {"> new 1 buy limit 1 @ 1\n= resting\n", "line 2: bad number '' for '= resting'"},
+      {"> new 1 buy limit 1 @ 1\n= last-accepted -1\n", "line 2: bad number '-1' for '= last-accepted'"},
+      {"> new 1 buy limit 1 @ 1\n= resting 1\naccepted 1\n", "line 3: an event after the step's depth or state"},
       {"> new 1 buy limit 1 @ 1\n= bids 1x\n", "line 2: bad level '1x'"},
-      {"> new 1 buy limit 1 @ 1\n= bids 1x1\naccepted 1\n", "line 3: an event after the step's depth checks"},
+      {"> new 1 buy limit 1 @ 1\n= bids 1x1\naccepted 1\n", "line 3: an event after the step's depth or state"},
   };
   for (const BadScenario& c : cases) {
     std::string error;
@@ -156,6 +166,64 @@ TEST(Scenario, MissingAndExtraEventsAreMismatchesToo) {
   EXPECT_NE(run_scenario(*parse_scenario("> new 1 buy limit 1 @ 1\naccepted 1\naccepted 1\n"), other), "");
   ReferenceBook third;
   EXPECT_NE(run_scenario(*parse_scenario("> new 1 buy limit 1 @ 1\n"), third), "");
+}
+
+TEST(Scenario, ParsesStateChecks) {
+  const auto scenario = parse_scenario(
+      "> new 3 sell limit 5 @ 101\n"
+      "accepted 3\n"
+      "= best asks 101\n"
+      "=  best   bids   none\n"
+      "= orders asks 3:101x5\n"
+      "= orders bids\n"
+      "= resting 1\n"
+      "= last-accepted 3\n");
+  ASSERT_TRUE(scenario.has_value());
+  const std::vector<StateCheck>& state = (*scenario)[0].state;
+  ASSERT_EQ(state.size(), 6U);
+  EXPECT_EQ(state[0], (StateCheck{3, StateCheck::Kind::BestPrice, Side::Sell, Price{101}, {}, 0}));
+  EXPECT_EQ(state[1], (StateCheck{4, StateCheck::Kind::BestPrice, Side::Buy, std::nullopt, {}, 0}));
+  EXPECT_EQ(state[2], (StateCheck{5, StateCheck::Kind::Orders, Side::Sell, std::nullopt,
+                                  {{OrderId{3}, Side::Sell, Price{101}, Quantity{5}}}, 0}));
+  EXPECT_EQ(state[3], (StateCheck{6, StateCheck::Kind::Orders, Side::Buy, std::nullopt, {}, 0}));
+  EXPECT_EQ(state[4], (StateCheck{7, StateCheck::Kind::Resting, Side::Buy, std::nullopt, {}, 1}));
+  EXPECT_EQ(state[5], (StateCheck{8, StateCheck::Kind::LastAccepted, Side::Buy, std::nullopt, {}, 3}));
+  // Each formats back to its line, spacing normalised.
+  EXPECT_EQ(format(state[0]), "= best asks 101");
+  EXPECT_EQ(format(state[1]), "= best bids none");
+  EXPECT_EQ(format(state[2]), "= orders asks 3:101x5");
+  EXPECT_EQ(format(state[3]), "= orders bids");
+  EXPECT_EQ(format(state[4]), "= resting 1");
+  EXPECT_EQ(format(state[5]), "= last-accepted 3");
+  ReferenceBook book;
+  EXPECT_EQ(run_scenario(*scenario, book), "");
+  Book engine;
+  EXPECT_EQ(run_scenario(*scenario, engine), "");
+}
+
+TEST(Scenario, ReportsAWrongStateWithItsLine) {
+  const std::string start =
+      "> new 1 buy limit 5 @ 100\n"
+      "accepted 1\n"
+      "> new 2 buy limit 3 @ 100\n"
+      "accepted 2\n";
+  const std::vector<std::pair<std::string, std::string>> cases{
+      {"= best bids 99\n", "line 5: expected '= best bids 99', actual '= best bids 100'"},
+      {"= best asks 100\n", "line 5: expected '= best asks 100', actual '= best asks none'"},
+      {"= orders bids 2:100x3 1:100x5\n", "line 5: expected '= orders bids 2:100x3 1:100x5', actual '= orders bids "
+                                          "1:100x5 2:100x3'"},
+      {"= orders asks 1:100x5\n", "line 5: expected '= orders asks 1:100x5', actual '= orders asks'"},
+      {"= resting 1\n", "line 5: expected '= resting 1', actual '= resting 2'"},
+      {"= last-accepted 1\n", "line 5: expected '= last-accepted 1', actual '= last-accepted 2'"},
+  };
+  for (const auto& [check, report] : cases) {
+    const auto scenario = parse_scenario(start + check);
+    ASSERT_TRUE(scenario.has_value()) << check;
+    ReferenceBook book;
+    EXPECT_EQ(run_scenario(*scenario, book), report) << check;
+    Book engine;
+    EXPECT_EQ(run_scenario(*scenario, engine), report) << check;
+  }
 }
 
 TEST(Scenario, ReportsAWrongDepthWithItsLine) {

@@ -1,5 +1,7 @@
 #include "orderbook/scenario.hpp"
 
+#include <charconv>
+#include <system_error>
 #include <utility>
 
 namespace orderbook {
@@ -27,6 +29,76 @@ std::string normalize(std::string_view line) {
     }
   }
   return out;
+}
+
+// A whole word as a decimal integer, as in the text format: digits only for unsigned types, an optional '-' for
+// signed ones.
+template <typename Int>
+std::optional<Int> to_int(std::string_view word) {
+  Int value{};
+  const char* const last = word.data() + word.size();
+  const auto [ptr, ec] = std::from_chars(word.data(), last, value);
+  if (word.empty() || ec != std::errc{} || ptr != last) return std::nullopt;
+  return value;
+}
+
+// The first word of `text` and what follows it, trimmed.
+std::pair<std::string_view, std::string_view> first_word(std::string_view text) {
+  std::size_t end = 0;
+  while (end < text.size() && !is_space(text[end])) ++end;
+  return {text.substr(0, end), trim(text.substr(end))};
+}
+
+std::optional<Side> side_of(std::string_view word) {
+  if (word == "bids") return Side::Buy;
+  if (word == "asks") return Side::Sell;
+  return std::nullopt;
+}
+
+// A state check's line after '=' (StateCheck), or nullopt with the reason in `error`.
+std::optional<StateCheck> parse_state_check(int line, std::string_view text, std::string& error) {
+  const auto [what, rest] = first_word(text);
+  StateCheck check;
+  check.line = line;
+  if (what == "best" || what == "orders") {
+    const auto [side_word, value] = first_word(rest);
+    const std::optional<Side> side = side_of(side_word);
+    if (!side) {
+      error = "expected '= " + std::string(what) + " bids ...' or '= " + std::string(what) + " asks ...'";
+      return std::nullopt;
+    }
+    check.side = *side;
+    if (what == "best") {
+      check.kind = StateCheck::Kind::BestPrice;
+      if (value != "none") {
+        const auto price = to_int<std::int64_t>(value);
+        if (!price) {
+          error = "bad best price '" + std::string(value) + "', expected a price or 'none'";
+          return std::nullopt;
+        }
+        check.best = Price{*price};
+      }
+      return check;
+    }
+    check.kind = StateCheck::Kind::Orders;
+    auto orders = parse_orders(value, *side, &error);
+    if (!orders) return std::nullopt;
+    check.orders = std::move(*orders);
+    return check;
+  }
+  if (what == "resting" || what == "last-accepted") {
+    check.kind = what == "resting" ? StateCheck::Kind::Resting : StateCheck::Kind::LastAccepted;
+    const auto number = to_int<std::uint64_t>(rest);
+    if (!number) {
+      error = "bad number '" + std::string(rest) + "' for '= " + std::string(what) + "'";
+      return std::nullopt;
+    }
+    check.number = *number;
+    return check;
+  }
+  error = "expected '= bids ...', '= asks ...', '= best ...', '= orders ...', '= resting ...' or "
+          "'= last-accepted ...', got '= " + std::string(text) + "'";
+  return std::nullopt;
 }
 
 std::string list(const std::vector<std::string>& lines) {
@@ -59,7 +131,7 @@ std::optional<Scenario> parse_scenario(std::string_view text, std::string* error
       std::string command_error;
       const auto command = parse_command(line.substr(1), &command_error);
       if (!command) return fail(command_error);
-      scenario.push_back(ScenarioStep{number, *command, {}, {}});
+      scenario.push_back(ScenarioStep{number, *command, {}, {}, {}});
       continue;
     }
     if (scenario.empty()) return fail("an expectation before any command ('> ...')");
@@ -67,19 +139,23 @@ std::optional<Scenario> parse_scenario(std::string_view text, std::string* error
 
     if (line.front() == '=') {
       const std::string_view rest = trim(line.substr(1));
-      std::size_t word_end = 0;
-      while (word_end < rest.size() && !is_space(rest[word_end])) ++word_end;
-      const std::string_view side_word = rest.substr(0, word_end);
-      if (side_word != "bids" && side_word != "asks") {
-        return fail("expected '= bids ...' or '= asks ...', got '" + std::string(line) + "'");
+      const auto [word, after] = first_word(rest);
+      if (const std::optional<Side> side = side_of(word)) {
+        std::string levels_error;
+        auto levels = parse_levels(after, &levels_error);
+        if (!levels) return fail(levels_error);
+        step.depth.push_back(DepthCheck{number, *side, std::move(*levels)});
+        continue;
       }
-      std::string levels_error;
-      auto levels = parse_levels(rest.substr(word_end), &levels_error);
-      if (!levels) return fail(levels_error);
-      step.depth.push_back(DepthCheck{number, side_word == "bids" ? Side::Buy : Side::Sell, std::move(*levels)});
+      std::string state_error;
+      auto check = parse_state_check(number, rest, state_error);
+      if (!check) return fail(state_error);
+      step.state.push_back(std::move(*check));
       continue;
     }
-    if (!step.depth.empty()) return fail("an event after the step's depth checks; events come first");
+    if (!step.depth.empty() || !step.state.empty()) {
+      return fail("an event after the step's depth or state checks; events come first");
+    }
     step.events.push_back(normalize(line));
   }
   return scenario;
@@ -98,6 +174,27 @@ std::string describe_depth_mismatch(const DepthCheck& check, const std::vector<L
   };
   return "line " + std::to_string(check.line) + ": expected '" + line(check.levels) + "', actual '" + line(actual) +
          "'";
+}
+
+std::string format(const StateCheck& check) {
+  const std::string side = check.side == Side::Buy ? "bids" : "asks";
+  switch (check.kind) {
+    case StateCheck::Kind::BestPrice:
+      return "= best " + side + " " + (check.best ? std::to_string(check.best->ticks) : "none");
+    case StateCheck::Kind::Orders: {
+      const std::string orders = format(check.orders);
+      return "= orders " + side + (orders.empty() ? "" : " ") + orders;
+    }
+    case StateCheck::Kind::Resting:
+      return "= resting " + std::to_string(check.number);
+    case StateCheck::Kind::LastAccepted:
+      return "= last-accepted " + std::to_string(check.number);
+  }
+  return "= ?";
+}
+
+std::string describe_state_mismatch(const StateCheck& check, const StateCheck& actual) {
+  return "line " + std::to_string(check.line) + ": expected '" + format(check) + "', actual '" + format(actual) + "'";
 }
 
 }  // namespace orderbook

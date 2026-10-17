@@ -213,8 +213,11 @@ The broken engine fails that file and the reference model passes it, so saved un
 regression test. Before `cabaf95` the same failure shrank to the first two commands, whose events agree: the shrinking
 accepted any difference, and the queue's wrong order shows in the state one command before it shows in an event. Now a
 difference first seen in the events is shrunk to one that still shows in the events. A difference seen only in the
-state, as in the three mixes that compare states after every command, still shrinks by the state; if it is in the
-order of a queue, which depth lines don't show, the file's comment names it but the file passes.
+state, as in the three mixes that compare states after every command, still shrinks by the state. Since the day-2
+review, every file the harness writes also ends with checks of the expected book's whole state (`= orders bids ...`,
+`= best asks ...`, `= resting N`, `= last-accepted N`; the example above, from before, ends with depth only), so the
+broken book fails it whichever part differed. Before, a difference in the best price, the number resting, the last
+accepted id or a queue's order shrank to a file whose events and depth were right, which the broken book passed.
 
 ## Results (day 2)
 
@@ -377,8 +380,6 @@ that nothing bounded the minimizer's replays (`cdaf411`); its docs corrections a
 - Day 2's engine allocates on the hot path (a list node and a hash node for each order that rests, a map node for each
   new level) and is slower than the reference model on books of fewer than about a hundred orders; day 3 removes the
   allocation.
-- Scenario files check events and depth, not the order of a queue, so a difference only in a queue's order shrinks to
-  a file that names it in a comment but passes; the differential tests themselves still fail on it.
 - The benchmark numbers above were measured on battery with other apps open (day 2's during a video call); day 3's
   are to be measured on power with nothing else running.
 

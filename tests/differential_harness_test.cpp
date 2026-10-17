@@ -188,7 +188,7 @@ TEST(Differential, ARandomStreamFindsAStateDifferenceAtACheckpoint) {
   EXPECT_FALSE(passes<broken::BookWithShortDepth>(scenario)) << scenario;
 }
 
-TEST(Differential, WritesTheExpectedBooksEventsAndDepth) {
+TEST(Differential, WritesTheExpectedBooksEventsDepthAndState) {
   const std::vector<Command> commands =
       parse_lines({"new 1 sell limit 10 @ 101", "new 2 buy limit 4 @ 101", "new 3 buy ioc 7 @ 101"});
   EXPECT_EQ((differential_scenario<ReferenceBook, broken::BookWithAPriceBug>(commands, "# heading\n")),
@@ -204,7 +204,13 @@ TEST(Differential, WritesTheExpectedBooksEventsAndDepth) {
             "cancelled 3 1 unfilled\n"
             "# but the book under test gave: accepted 3 | trade 3 1 6 @ 102 | cancelled 3 1 unfilled\n"
             "= bids\n"
-            "= asks\n");
+            "= asks\n"
+            "= orders bids\n"
+            "= orders asks\n"
+            "= best bids none\n"
+            "= best asks none\n"
+            "= resting 0\n"
+            "= last-accepted 3\n");
 }
 
 }  // namespace
