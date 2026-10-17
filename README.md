@@ -135,7 +135,8 @@ make check
 
 Configures the `dev` preset (Debug, warnings as errors) into `build/dev`, builds everything, and runs the 165 tests.
 `make asan` runs them under AddressSanitizer and UndefinedBehaviorSanitizer; `make bench` builds the `release`
-preset (-O3) and runs the benchmarks; `make coverage` reports the tests' line and branch coverage (Clang only);
+preset (-O3) and runs the benchmarks; `make soak` runs the engine against the reference model on 1.04 billion random
+commands (below); `make coverage` reports the tests' line and branch coverage (Clang only);
 `make gcc-check` compiles the project's files with GCC 15, Debug and Release, warnings as errors.
 
 The command-line tool (`build/dev/orderbook`; `check`, `run` and `audit` use the engine unless given
@@ -154,8 +155,18 @@ test; each book passes the other's transcript of a random stream (two CLI tests)
 `audit` line printed `commands 100000, accepted 57516, rejected 17972, trades 27713, cancelled 29176; resting at the
 end 325, at most 342` in 0.60 s on the engine (0.87 s on the reference model at `cdaf411`); most of the rejections are
 cancels of orders that had already filled. The `diff` line printed `commands 1000000: the same events from both books,
-and the same state every 1000 commands and at the end` in 3.72 s. On a difference, `diff` prints the shrunk commands
-as a scenario file and exits 1.
+and the same state every 1000 commands and at the end` in 3.72 s. On a difference, `diff` reports it on stderr at
+once, then prints the shrunk commands as a scenario file and exits 1.
+
+`make soak` (`scripts/diff_soak.sh`) runs the release build's `diff` on six mixes, four seeds each, four runs at a
+time: 50 million commands a run for the default mix, long queues at three prices, one-lot orders, quantities to 10^9 on
+a nearly empty book, and 30% spoiled orders, and 10 million for a deep book (target 5,000 orders over 2,000 ticks). At
+`5d65524` it printed `24 runs, 1040000000 commands, in 48 s`, every run `ok` (on power, 10:49). Run on a deliberately
+broken engine (the time-priority mutation below), all 24 runs reported a difference. Three of them also crashed: the
+broken engine's index held iterators to freed nodes. Two had already printed the difference (it is reported before
+the shrinking, which replays the broken book many times); one crashed before its events differed, and the ASan build
+(`build/asan/orderbook`, from `make asan`) reports that one as a heap-use-after-free in `Book::cancel`. A book with a
+memory error can crash a differential run; the sanitizer build says where.
 
 ## When a random run fails
 

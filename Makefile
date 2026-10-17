@@ -1,7 +1,7 @@
 # Thin wrappers over the CMake presets (CMakePresets.json). `make check` is what every commit must pass.
 JOBS ?= $(shell sysctl -n hw.ncpu 2>/dev/null || nproc)
 
-.PHONY: check asan bench coverage gcc-check clean
+.PHONY: check asan bench soak coverage gcc-check clean
 
 # Debug build with warnings as errors, then every test.
 check:
@@ -21,6 +21,13 @@ bench:
 	cmake --preset release >/dev/null
 	cmake --build --preset release -j $(JOBS) --target orderbook_bench
 	./build/release/bench/orderbook_bench --benchmark_repetitions=5 --benchmark_report_aggregates_only=true $(BENCH_ARGS)
+
+# The engine against the reference model on 1.04 billion random commands in six mixes, every event compared, from the
+# optimised build (scripts/diff_soak.sh). Exits 1 on a difference and prints its shrunk scenario file.
+soak:
+	cmake --preset release >/dev/null
+	cmake --build --preset release -j $(JOBS) --target orderbook_cli
+	scripts/diff_soak.sh build/release/orderbook
 
 # Line, function, region and branch coverage of the library and test kit (src/ and include/) by the GoogleTest suite,
 # with Clang's source-based coverage. Each test runs as its own process and writes its own profile; they are merged
