@@ -5,6 +5,7 @@ add_executable(orderbook_tests
   books_test.cpp
   check_test.cpp
   differential_harness_test.cpp
+  differential_test.cpp
   minimize_test.cpp
   random_flow_test.cpp
   review/audit_accepts_zero_quantity_trade_test.cpp
