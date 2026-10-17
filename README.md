@@ -133,7 +133,7 @@ configure time as release tarballs pinned by SHA-256.
 make check
 ```
 
-Configures the `dev` preset (Debug, warnings as errors) into `build/dev`, builds everything, and runs the 167 tests.
+Configures the `dev` preset (Debug, warnings as errors) into `build/dev`, builds everything, and runs the 180 tests.
 `make asan` runs them under AddressSanitizer and UndefinedBehaviorSanitizer; `make bench` builds the `release`
 preset (-O3) and runs the benchmarks; `make soak` runs the engine against the reference model on 1.04 billion random
 commands (below); `make coverage` reports the tests' line and branch coverage (Clang only);
@@ -275,7 +275,7 @@ core's.
 
 ## Tests
 
-167 tests (`make check`), each a separate CTest test. CI runs them on four jobs (GCC 14 and Clang 18 on Ubuntu, Apple
+180 tests (`make check`), each a separate CTest test. CI runs them on four jobs (GCC 14 and Clang 18 on Ubuntu, Apple
 Clang on macOS, each Debug and Release, and Clang under ASan and UBSan), fuzzes on a fifth, and runs `make soak` with
 GCC 14 on a sixth: at `f833616`, `24 runs, 1040000000 commands, in 71 s`.
 
@@ -293,14 +293,15 @@ branches. At `a900bb9`, 741 of 751 and 469 of 482; the second review found that 
 | `text_test.cpp` | Each command and event's exact text; strict parsing (20 malformed lines, each with its reason); 20,000 random commands, edge values included, parse back to themselves |
 | `books_test.cpp` | Both books (a typed suite): their queries, the order of the validation checks, a rejection changing nothing, which orders can be cancelled, a sweep through levels |
 | `book_test.cpp` | The engine's structure: levels that empty leave the book, a level's total, cancels from the front, middle and back of a queue, a partly filled maker keeps its place, a sweep through 1,000 levels, a moved book's index (under ASan too), and that `Book` can't be copied |
-| `scenario_test.cpp` + `scenarios/*.txt` | Fourteen hand-written scripts, one or more per rule, on both books; the parser's and runner's error reports, with line numbers |
+| `scenario_test.cpp` + `scenarios/*.txt` | Fourteen hand-written scripts, one or more per rule, on both books; the parser's and runner's error reports, with line numbers, for depth and state checks |
 | `differential_test.cpp` | The engine against the reference model, every event of 720,000 random commands in seven mixes (the default, long queues at three prices, one-lot orders, quantities to 10^9 on a nearly empty book, 30% spoiled orders, a deep book of 900+ levels a side, prices at both bounds), states compared at checkpoints (after every command in three mixes); the engine's events under the Audit and its state under `check_book` too |
-| `differential_harness_test.cpp` | The harness itself, with deliberately broken books (`broken_books.hpp`): two reference models never differ; the first differing command is named; a state-only bug is found at a checkpoint; price, depth and time-priority bugs shrink to 3 commands each, in files the broken book fails; the streaming `diff` stops where `first_difference` does |
+| `differential_harness_test.cpp` | The harness itself, with deliberately broken books (`broken_books.hpp`): two reference models never differ; the first differing command is named; every part of the state is compared, at the checkpoints asked for and at the end; price, depth and time-priority bugs shrink to 3 commands each, in files the broken book fails; the streaming `diff` stops where `first_difference` does |
+| `review3/*.cpp` | The day-2 review's reproductions: differences only in the best price, the number resting or the last accepted id, which now shrink to files the broken book fails |
 | `random_flow_test.cpp` | Same seed same stream; a pinned hash of seed 1's first 100,000 commands, so Linux and macOS must agree; the documented mix on each side of the target; options it can't honour are refused; near either price bound every order sent valid is accepted; rejected orders resent under the same id are accepted, and some rejections break two rules; in a fully spoiled stream only resends are accepted, about half come back, and resent limit orders can be cancelled |
 | `check_test.cpp` | The reference model passes `Audit` and `check_book` over 160,000 random commands: four seeds of the default mix, and mixes with long queues at three prices (every check after every command), quantities up to 10^9 on a near-empty book, and 30% invalid orders; each check is shown to fail on events or a state that break its rule; a pinned hash of the reference model's events and book (I7) |
 | `review/*.cpp`, `review2/` | The two day-1 reviews' reproductions, kept as regression tests: 0-lot trades after a fill; a stream starting near a price bound; double spoils that broke one rule; an empty transcript `check` rejected |
 | `minimize_test.cpp` | The minimizer keeps exactly what a failure needs, in order, and is 1-minimal; 1,000 commands shrink in under 100 replays (56); random runs that catch two deliberately broken books shrink to 3 commands and to 1 |
-| CLI tests (`tests/CMakeLists.txt`) | `check` passes the scenarios on both books and reports a wrong one with its line and the actual events; a 2,000-command transcript passes its own check, and so does an empty one; each book passes the other's transcript of 5,000 commands; `audit` passes 20,000 commands on each book; `diff` agrees on 100,000; options out of range and bad arguments are reported; each exit code exactly (0, 1, 2) |
+| CLI tests (`tests/CMakeLists.txt`) | `check` passes the scenarios on both books and reports a wrong one with its line and the actual events; a 2,000-command transcript passes its own check, and so does an empty one; each book passes the other's transcript of 5,000 commands; `audit` passes 20,000 commands on each book; `diff` agrees on 100,000; the tool built around two broken books reports a difference, exits 1, prints a scenario that passes with `--book reference` and fails on the engine, and compares states as often as `--every` says; options out of range and bad arguments are reported; each exit code exactly (0, 1, 2) |
 | Fuzz targets (`fuzz/`, in CTest) | Both on 2,000 seeded random inputs each; the text target on the scenario files whole and on each of their 405 lines, so its round-trip checks run. The book target runs both books in lockstep, comparing events and states after every command, with the Audit and `check_book` on the engine. CI's libFuzzer job runs each for 60 s instead: at `30677d4`, 1,213,736 text inputs and 192,251 book inputs (both books), no findings (at `a900bb9`, the reference model alone, 232,863 book inputs). Locally, the release build's standalone driver ran 500,000 random book inputs in 301 s at `b3af16c`, no findings |
 
 ## Review of day 1
@@ -334,6 +335,30 @@ found that the CLI tests' message matching made CTest ignore exit codes (now tes
 text fuzzer's round-trip checks were never reached in CTest (`c00291c`), that `audit` ignored problems found mid-run
 (`cd389bd`), that several generator mutants were caught only by the pinned hashes (now by properties, `2c2baee`), and
 that nothing bounded the minimizer's replays (`cdaf411`); its docs corrections are in.
+
+## Review of day 2
+
+One background agent reviewed the day's code at `9d837b3`, as a correctness review in its own worktree, in 25 minutes.
+It found no bug in the engine: a 34-command script of edge cases (ids 0 and 2^64 - 1, bounds and one past them,
+market orders with a price, cancels of partly filled makers) gave the same transcript on both books, and eight
+unusual `diff` mixes, most with states compared after every command, agreed. It found one bug in the harness, which
+it saved as four failing tests (now in `tests/review3/`) and I reproduced here before fixing it:
+
+- **A difference only in a book's best price, its number resting or its last accepted id shrank to a scenario file
+  the broken book passed.** The harness compares all of those, but the file it wrote checked events and depth only,
+  while the docs said the file would fail on the broken book. Scenario files now have state checks (`= orders bids
+  ...`, `= best asks ...`, `= resting N`, `= last-accepted N`), and every file the harness writes ends with all of
+  them (`f784674`).
+
+Of its 39 mutations, 13 went unnoticed or were noticed only by a crash, and each now fails a test, checked by running
+each mutation again here (`5cc6503`, `6d877d9`): ids jumping by more than 2^32, a market order skipping a maker at
+10^9, `best_price` returning the worst price, `size()` counting levels, an emptied level left in place, a move that
+copied the containers (caught before only by a segfault), the checkpoint arithmetic, the final state comparison, and
+six in the CLI. Both books print the same output, so no CLI test could tell which one ran; the tool is now also built,
+for tests only, around two deliberately broken books, and the tests check `diff`'s report, exit code and scenario, and
+that `--book` runs the book it names. Its docs corrections are in (`c066d09`): validation shares the bounds
+predicates with the reference model (an exclusive price bound passes every differential run and fails the
+hand-written bounds tests), the schedule of the Audit's comparisons, and an O(1) that is O(1) on average.
 
 ## Design decisions
 
