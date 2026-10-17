@@ -91,6 +91,20 @@ add_test(NAME cli.broken_engine.diffs_scenario_fails_the_engine_and_passes_the_r
   \"$1\" --book reference check \"$2\" && ! \"$1\" check \"$2\" && ! \"$1\" --book engine check \"$2\"" sh
           $<TARGET_FILE:orderbook_cli_broken> ${CMAKE_CURRENT_BINARY_DIR}/broken_engine_diff.txt)
 
+# run and audit use the book --book names too. The broken engine's transcript of a random stream fails the reference
+# model's check, and its --book reference transcript passes; its audit fails, and its --book reference audit passes.
+add_test(NAME cli.broken_engine.run_uses_the_book_named
+  COMMAND sh -c "\"$1\" gen 12 3000 --target 100 > \"$3.commands\" && \"$2\" run \"$3.commands\" > \"$3\" &&
+  ! \"$1\" --book reference check \"$3\" > /dev/null 2>&1 &&
+  \"$2\" --book reference run \"$3.commands\" > \"$3.reference\" && \"$1\" --book reference check \"$3.reference\"" sh
+          $<TARGET_FILE:orderbook_cli> $<TARGET_FILE:orderbook_cli_broken> ${CMAKE_CURRENT_BINARY_DIR}/broken_run.txt)
+add_test(NAME cli.broken_engine.audit_uses_the_book_named
+  COMMAND sh -c "\"$1\" audit 12 3000 --target 100 > /dev/null 2>&1; test $? -eq 1 &&
+  \"$1\" --book reference audit 12 3000 --target 100 > /dev/null" sh $<TARGET_FILE:orderbook_cli_broken>)
+add_test(NAME cli.broken_depth.diff_of_a_state_difference_exits_1
+  COMMAND sh -c "\"$1\" diff 3 2000 --target 50 --every 1 > /dev/null 2>&1; test $? -eq 1" sh
+          $<TARGET_FILE:orderbook_cli_broken_depth>)
+
 # The second day-1 review's reproductions of CLI bugs.
 include(${CMAKE_CURRENT_SOURCE_DIR}/review2/cli_tests.cmake)
 

@@ -64,7 +64,8 @@ std::optional<StateCheck> parse_state_check(int line, std::string_view text, std
     const auto [side_word, value] = first_word(rest);
     const std::optional<Side> side = side_of(side_word);
     if (!side) {
-      error = "expected '= " + std::string(what) + " bids ...' or '= " + std::string(what) + " asks ...'";
+      error = "expected '= " + std::string(what) + " bids ...' or '= " + std::string(what) + " asks ...', got '= " +
+              std::string(text) + "'";
       return std::nullopt;
     }
     check.side = *side;
