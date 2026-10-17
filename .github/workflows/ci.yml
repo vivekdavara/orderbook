@@ -63,6 +63,19 @@ jobs:
       - name: Build and test under the sanitizers
         run: make asan JOBS=4
 
+  soak:
+    name: Linux, GCC 14, differential soak
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      CXX: g++-14
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install Ninja
+        run: sudo apt-get update -q && sudo apt-get install -y -q ninja-build
+      - name: The engine against the reference model on 1.04 billion random commands (make soak)
+        run: make soak JOBS=4
+
   fuzz:
     name: Linux, Clang 18, libFuzzer
     runs-on: ubuntu-24.04
