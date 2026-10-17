@@ -217,13 +217,16 @@ int audit(const FlowArgs& args) {
   return checker.ok() && sound ? 0 : 1;
 }
 
-// The reference model is the expected book and the engine the one under test.
+// The reference model is the expected book and the engine the one under test. A difference is reported before the
+// shrinking starts, since a book with a memory error can crash during it.
 int diff(const FlowArgs& args) {
   const StreamDifference result = diff_random_stream<ReferenceBook, Book>(args.seed, args.options, args.count,
                                                                          args.every);
   if (result.difference) {
-    std::cerr << "the engine differs from the reference model at " << result.difference->what << "\n";
-    std::cout << result.scenario;
+    std::cerr << "the engine differs from the reference model at " << result.difference->what << "\n"
+              << "shrinking the " << result.commands << " commands to the ones it needs\n"
+              << std::flush;
+    std::cout << shrink_random_stream<ReferenceBook, Book>(args.seed, args.options, result.commands);
     return 1;
   }
   std::cout << "commands " << result.commands << ": the same events from both books, and the same state every "

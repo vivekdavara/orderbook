@@ -50,8 +50,9 @@ void expect_same_books(const Mix& mix) {
     const bool checkpoint = i % mix.state_every == 0 || i == mix.commands;
     if (!what && checkpoint) what = books.compare();
     if (what) {
-      FAIL() << "seed " << mix.seed << ", command " << i << ": " << *what << "\n"
-             << shrink_to_scenario<ReferenceBook, Book>(commands);
+      // Reported before the shrinking, which replays the engine on parts of the stream and could crash in it.
+      ADD_FAILURE() << "seed " << mix.seed << ", command " << i << ": " << *what;
+      FAIL() << shrink_to_scenario<ReferenceBook, Book>(commands);
     }
     audit.record(commands.back(), books.actual_events());
     ASSERT_TRUE(audit.ok()) << "seed " << mix.seed << "\n" << joined(audit.problems());

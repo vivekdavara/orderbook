@@ -166,13 +166,12 @@ std::string shrink_to_scenario(const std::vector<Command>& commands) {
 struct StreamDifference {
   std::uint64_t commands = 0;  // commands run: all of them, or up to and including the first difference
   std::optional<Difference> difference;
-  std::string scenario;  // when they differed, the shrunk commands as a scenario file (shrink_to_scenario)
 };
 
 // Runs `count` commands of RandomFlow(seed, options) through both books, comparing every command's events, and the
 // states every `state_every` commands (never, if 0) and after the last. Nothing is kept as it runs, so the stream
-// can be as long as wanted: on a difference, the same seed makes the same commands again up to it, and those are
-// shrunk. What `orderbook diff` runs.
+// can be as long as wanted. What `orderbook diff` runs; on a difference it reports it at once, and then calls
+// shrink_random_stream.
 template <typename Expected, typename Actual>
 StreamDifference diff_random_stream(std::uint64_t seed, const FlowOptions& options, std::uint64_t count,
                                     std::uint64_t state_every) {
@@ -188,19 +187,24 @@ StreamDifference diff_random_stream(std::uint64_t seed, const FlowOptions& optio
       // No cast: uint64_t is size_t on Linux (GCC's -Wuseless-cast), and the same width on macOS.
       result.difference =
           Difference{i - 1, in_events, (in_events ? "command " : "after command ") + std::to_string(i) + ": " + *what};
-      break;
+      return result;
     }
   }
-  if (!result.difference) {
-    result.commands = count;
-    return result;
-  }
-  RandomFlow again(seed, options);
-  std::vector<Command> commands;
-  commands.reserve(result.commands);
-  for (std::uint64_t i = 0; i < result.commands; ++i) commands.push_back(again.next());
-  result.scenario = shrink_to_scenario<Expected, Actual>(commands);
+  result.commands = count;
   return result;
+}
+
+// Makes the first `commands` commands of RandomFlow(seed, options) again (the same seed gives the same commands) and
+// shrinks them to a scenario file (shrink_to_scenario). Separate from diff_random_stream so a caller can report the
+// difference before shrinking: the shrinking replays the book under test hundreds of times on parts of the stream,
+// and a book with a memory error can crash on one of them.
+template <typename Expected, typename Actual>
+std::string shrink_random_stream(std::uint64_t seed, const FlowOptions& options, std::uint64_t commands) {
+  RandomFlow flow(seed, options);
+  std::vector<Command> stream;
+  stream.reserve(commands);
+  for (std::uint64_t i = 0; i < commands; ++i) stream.push_back(flow.next());
+  return shrink_to_scenario<Expected, Actual>(stream);
 }
 
 }  // namespace orderbook
