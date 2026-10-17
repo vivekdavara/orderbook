@@ -153,6 +153,15 @@ std::string format(const std::vector<RestingOrder>& orders) {
   return text;
 }
 
+std::string format_with_sides(const std::vector<RestingOrder>& orders) {
+  std::string text;
+  for (const RestingOrder& order : orders) {
+    if (!text.empty()) text += ' ';
+    text += format(std::vector<RestingOrder>{order}) + "(" + std::string(to_string(order.side)) + ")";
+  }
+  return text;
+}
+
 std::optional<Command> parse_command(std::string_view line, std::string* error) {
   const std::vector<std::string_view> words = split_words(line);
   if (words.empty()) return fail<Command>(error, "empty command");

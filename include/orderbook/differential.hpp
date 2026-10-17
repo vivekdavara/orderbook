@@ -42,7 +42,15 @@ std::optional<std::string> state_difference(const Expected& expected, const Actu
     const std::string name = side == Side::Buy ? "bids" : "asks";
     const std::vector<RestingOrder> wanted = expected.orders(side);
     const std::vector<RestingOrder> got = actual.orders(side);
-    if (wanted != got) return name + ": expected '" + describe(wanted) + "', actual '" + describe(got) + "'";
+    if (wanted != got) {
+      std::string wanted_text = describe(wanted);
+      std::string got_text = describe(got);
+      if (wanted_text == got_text) {  // they differ in what the text leaves out, each order's side
+        wanted_text = format_with_sides(wanted);
+        got_text = format_with_sides(got);
+      }
+      return name + ": expected '" + wanted_text + "', actual '" + got_text + "'";
+    }
     const std::vector<Level> wanted_depth = expected.depth(side);
     const std::vector<Level> got_depth = actual.depth(side);
     if (wanted_depth != got_depth) {

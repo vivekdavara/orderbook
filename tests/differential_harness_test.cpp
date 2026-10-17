@@ -107,6 +107,12 @@ TEST(Differential, ComparesEveryPartOfTheState) {
   ASSERT_TRUE(last_id.has_value());
   EXPECT_EQ(last_id->what, "after command 2: last accepted id: expected 5, actual 9");
 
+  // A side's orders that print the same and still differ are shown with their sides (the review's case: an order
+  // reported on the wrong side).
+  EXPECT_EQ(format_with_sides({{OrderId{1}, Side::Buy, Price{100}, Quantity{5}}, {OrderId{2}, Side::Sell, Price{9},
+                                                                                     Quantity{1}}}),
+            "1:100x5(buy) 2:9x1(sell)");
+
   // And a side's orders, in priority order: here a queue in the wrong order, whose depth is right.
   const auto orders = first_difference<ReferenceBook, broken::BookWithNewestFirstQueues>(
       parse_lines({"new 1 buy limit 1 @ 100", "new 2 buy limit 2 @ 100"}), 1);

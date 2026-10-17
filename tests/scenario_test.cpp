@@ -4,8 +4,10 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstddef>
 #include <filesystem>
 #include <fstream>
+#include <optional>
 #include <sstream>
 #include <string>
 #include <system_error>
@@ -224,6 +226,32 @@ TEST(Scenario, ReportsAWrongStateWithItsLine) {
     Book engine;
     EXPECT_EQ(run_scenario(*scenario, engine), report) << check;
   }
+}
+
+// The reference model, except that it reports its bids as sells: lists that print the same and still differ.
+class BookWithSellsForBids {
+ public:
+  void apply(const Command& command, std::vector<Event>& events) { book_.apply(command, events); }
+  std::vector<Level> depth(Side side) const { return book_.depth(side); }
+  std::optional<Price> best_price(Side side) const { return book_.best_price(side); }
+  std::vector<RestingOrder> orders(Side side) const {
+    std::vector<RestingOrder> reported = book_.orders(side);
+    for (RestingOrder& order : reported) order.side = Side::Sell;
+    return reported;
+  }
+  std::size_t size() const { return book_.size(); }
+  OrderId last_accepted_id() const { return book_.last_accepted_id(); }
+
+ private:
+  ReferenceBook book_;
+};
+
+TEST(Scenario, ReportsOrdersThatPrintTheSameWithTheirSides) {
+  const auto scenario = parse_scenario("> new 1 buy limit 5 @ 100\naccepted 1\n= orders bids 1:100x5\n");
+  ASSERT_TRUE(scenario.has_value());
+  BookWithSellsForBids book;
+  EXPECT_EQ(run_scenario(*scenario, book),
+            "line 3: expected '= orders bids 1:100x5(buy)', actual '= orders bids 1:100x5(sell)'");
 }
 
 TEST(Scenario, ReportsAWrongDepthWithItsLine) {

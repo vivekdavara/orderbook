@@ -194,7 +194,15 @@ std::string format(const StateCheck& check) {
 }
 
 std::string describe_state_mismatch(const StateCheck& check, const StateCheck& actual) {
-  return "line " + std::to_string(check.line) + ": expected '" + format(check) + "', actual '" + format(actual) + "'";
+  std::string wanted = format(check);
+  std::string got = format(actual);
+  // Orders that print the same and still differ, differ in what the line leaves out: each order's side. Show it.
+  if (wanted == got && check.kind == StateCheck::Kind::Orders) {
+    const std::string orders = check.side == Side::Buy ? "= orders bids " : "= orders asks ";
+    wanted = orders + format_with_sides(check.orders);
+    got = orders + format_with_sides(actual.orders);
+  }
+  return "line " + std::to_string(check.line) + ": expected '" + wanted + "', actual '" + got + "'";
 }
 
 }  // namespace orderbook

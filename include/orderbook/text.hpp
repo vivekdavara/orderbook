@@ -36,6 +36,9 @@ std::string format(const Event& event);
 std::string format(const std::vector<Level>& levels);
 // "3:101x5 4:101x2": resting orders as id:price x remaining, separated by spaces; empty for none.
 std::string format(const std::vector<RestingOrder>& orders);
+// "3:101x5(sell) 4:101x2(sell)": the same with each order's side, which the line form leaves to the line. For
+// reports of two lists that print the same and still differ.
+std::string format_with_sides(const std::vector<RestingOrder>& orders);
 
 // Parses one command line. Words are separated by spaces or tabs. On failure returns nullopt and, if `error` is
 // given, says what was wrong.
