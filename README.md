@@ -133,7 +133,7 @@ configure time as release tarballs pinned by SHA-256.
 make check
 ```
 
-Configures the `dev` preset (Debug, warnings as errors) into `build/dev`, builds everything, and runs the 165 tests.
+Configures the `dev` preset (Debug, warnings as errors) into `build/dev`, builds everything, and runs the 167 tests.
 `make asan` runs them under AddressSanitizer and UndefinedBehaviorSanitizer; `make bench` builds the `release`
 preset (-O3) and runs the benchmarks; `make soak` runs the engine against the reference model on 1.04 billion random
 commands (below); `make coverage` reports the tests' line and branch coverage (Clang only);
@@ -272,7 +272,9 @@ core's.
 
 ## Tests
 
-165 tests (`make check`), each a separate CTest test; CI runs them on four jobs and fuzzes on a fifth.
+167 tests (`make check`), each a separate CTest test. CI runs them on four jobs (GCC 14 and Clang 18 on Ubuntu, Apple
+Clang on macOS, each Debug and Release, and Clang under ASan and UBSan), fuzzes on a fifth, and runs `make soak` with
+GCC 14 on a sixth: at `f833616`, `24 runs, 1040000000 commands, in 71 s`.
 
 `make coverage` (Clang source-based coverage of `src/` and `include/` by everything CTest runs: the GoogleTest suite,
 and the CLI tests and fuzz runs, whose profiles are merged in), at `cdaf411`: 98.7% of lines (746 of 756), 97.3% of
