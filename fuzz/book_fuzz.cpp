@@ -1,12 +1,15 @@
-// Fuzz target for the book: bytes decode to a stream of commands on 16 prices with small quantities (so orders meet
-// often), with some invalid orders and cancels of earlier ids; the reference model runs them with the Audit and
-// check_book on after every command. Any problem, or a crash, is a finding.
+// Fuzz target for the books: bytes decode to a stream of commands on 16 prices with small quantities (so orders meet
+// often), with some invalid orders and cancels of earlier ids. The engine and the reference model run them in
+// lockstep: after every command their events and their states must be the same, and the engine's events must pass
+// the Audit and its state check_book. Any difference or problem, or a crash, is a finding.
 
 #include <cstddef>
 #include <cstdint>
 #include <vector>
 
+#include "orderbook/book.hpp"
 #include "orderbook/check.hpp"
+#include "orderbook/differential.hpp"
 #include "orderbook/reference_book.hpp"
 
 namespace {
@@ -62,18 +65,16 @@ Command decode(Bytes& in, std::uint64_t& next_id) {
 
 extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size) {
   Bytes in(data, size);
-  ReferenceBook book;
+  Lockstep<ReferenceBook, Book> books;
   Audit audit;
-  std::vector<Event> events;
   std::uint64_t next_id = 1;
   while (!in.empty()) {
     const Command command = decode(in, next_id);
-    events.clear();
-    book.apply(command, events);
-    audit.record(command, events);
-    if (!audit.ok() || !check_book(book).empty()) __builtin_trap();
+    if (books.apply(command) || books.compare()) __builtin_trap();
+    audit.record(command, books.actual_events());
+    if (!audit.ok() || !check_book(books.actual()).empty()) __builtin_trap();
   }
-  audit.compare(book);
+  audit.compare(books.actual());
   if (!audit.ok()) __builtin_trap();
   return 0;
 }
