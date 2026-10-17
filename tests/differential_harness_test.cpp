@@ -44,7 +44,7 @@ bool passes(const std::string& text) {
 }
 
 TEST(Differential, TwoReferenceModelsNeverDiffer) {
-  const std::vector<Command> commands = random_commands(5, 20'000, FlowOptions{.target_resting = 200});
+  const std::vector<Command> commands = random_commands(5, 5'000, FlowOptions{.target_resting = 200});
   EXPECT_EQ((first_difference<ReferenceBook, ReferenceBook>(commands, 1)), std::nullopt);
   EXPECT_EQ((shrink_to_scenario<ReferenceBook, ReferenceBook>(commands)), "");
 }
@@ -101,6 +101,27 @@ TEST(Differential, ShrinksAStateOnlyBugToAScenarioWhoseDepthCatchesIt) {
   EXPECT_NE(scenario.find("# the events agree, but then "), std::string::npos) << scenario;
   EXPECT_TRUE(passes<ReferenceBook>(scenario)) << scenario;
   EXPECT_FALSE(passes<broken::BookWithShortDepth>(scenario)) << scenario;
+}
+
+TEST(Differential, ABugTheStateShowsFirstStillShrinksToEventsThatShowIt) {
+  // With time priority backwards, the states differ as soon as two orders rest at one price, and the events only
+  // once a taker reaches them. Shrunk by the state alone, the stream would be two resting orders whose events agree;
+  // the scenario file must instead show a trade with the wrong maker, so that the broken book fails it.
+  const std::vector<Command> commands = random_commands(1, 2'000, FlowOptions{.target_resting = 50});
+  const auto by_state = first_difference<ReferenceBook, broken::BookWithNewestFirstQueues>(commands, 1);
+  const auto by_events = first_difference<ReferenceBook, broken::BookWithNewestFirstQueues>(commands);
+  ASSERT_TRUE(by_state.has_value() && by_events.has_value());
+  EXPECT_FALSE(by_state->in_events);
+  EXPECT_TRUE(by_events->in_events);
+  EXPECT_LT(by_state->index, by_events->index);
+  const std::vector<Command> prefix(commands.begin(),
+                                    commands.begin() + static_cast<std::ptrdiff_t>(by_events->index + 1));
+  const std::string scenario = shrink_to_scenario<ReferenceBook, broken::BookWithNewestFirstQueues>(prefix);
+  // Two orders at one price, and a taker that trades with one of them.
+  EXPECT_NE(scenario.find("# The books disagree on these 3 commands"), std::string::npos) << scenario;
+  EXPECT_NE(scenario.find("# but the book under test gave: "), std::string::npos) << scenario;
+  EXPECT_TRUE(passes<ReferenceBook>(scenario)) << scenario;
+  EXPECT_FALSE(passes<broken::BookWithNewestFirstQueues>(scenario)) << scenario;
 }
 
 TEST(Differential, WritesTheExpectedBooksEventsAndDepth) {

@@ -1,9 +1,10 @@
 #pragma once
 
 // Books with one deliberate bug each, for testing the tools whose job is to catch bugs: the minimizer
-// (minimize_test.cpp) and the differential harness (differential_test.cpp). Each is the reference model with one
-// thing it reports changed.
+// (minimize_test.cpp) and the differential harness (differential_harness_test.cpp). Most are the reference model
+// with one thing it reports changed; the last is a book of its own with time priority backwards.
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
@@ -74,6 +75,98 @@ class BookWithShortDepth : public WrappedReferenceBook {
     if (levels.size() > 2) levels.resize(2);
     return levels;
   }
+};
+
+// Time priority backwards: at the best price, the newest order trades first, and orders() lists each price's orders
+// newest first. Otherwise the reference model's rules, written the same direct way (a vector of each side's orders
+// in arrival order). The wrong order shows in the state as soon as two orders rest at one price, but in an event
+// only when a taker reaches them: the case where shrinking by state alone would hide the bug from the events.
+class BookWithNewestFirstQueues {
+ public:
+  void apply(const Command& command, std::vector<Event>& events) {
+    if (const auto* cancel = std::get_if<CancelOrder>(&command)) {
+      for (std::vector<RestingOrder>* resting : {&bids_, &asks_}) {
+        const auto it = std::find_if(resting->begin(), resting->end(),
+                                     [&](const RestingOrder& order) { return order.id == cancel->id; });
+        if (it != resting->end()) {
+          events.push_back(Cancelled{it->id, it->remaining, CancelReason::Requested});
+          resting->erase(it);
+          return;
+        }
+      }
+      events.push_back(Rejected{cancel->id, RejectReason::UnknownOrder});
+      return;
+    }
+    const NewOrder& order = std::get<NewOrder>(command);
+    const bool price_ok = order.type == OrderType::Market ? order.price == Price{0} : valid_price(order.price);
+    if (order.id <= last_accepted_ || !valid_quantity(order.quantity) || !price_ok) {
+      events.push_back(Rejected{order.id, order.id <= last_accepted_   ? RejectReason::IdNotIncreasing
+                                          : !valid_quantity(order.quantity) ? RejectReason::InvalidQuantity
+                                                                            : RejectReason::InvalidPrice});
+      return;
+    }
+    last_accepted_ = order.id;
+    events.push_back(Accepted{order.id});
+    Quantity remaining = order.quantity;
+    std::vector<RestingOrder>& makers = order.side == Side::Buy ? asks_ : bids_;
+    while (remaining > Quantity{0}) {
+      auto best = makers.end();
+      for (auto it = makers.begin(); it != makers.end(); ++it) {
+        // The bug: >= where the rules need >, so a later order at the same price wins.
+        if (best == makers.end() || !better(*best, *it)) best = it;
+      }
+      if (best == makers.end() || !crosses(order, best->price)) break;
+      const Quantity fill = std::min(remaining, best->remaining);
+      events.push_back(Trade{order.id, best->id, fill, best->price});
+      remaining -= fill;
+      best->remaining -= fill;
+      if (best->remaining == Quantity{0}) makers.erase(best);
+    }
+    if (remaining == Quantity{0}) return;
+    if (order.type == OrderType::Limit) {
+      (order.side == Side::Buy ? bids_ : asks_).push_back(RestingOrder{order.id, order.side, order.price, remaining});
+    } else {
+      events.push_back(Cancelled{order.id, remaining, CancelReason::Unfilled});
+    }
+  }
+
+  std::optional<Price> best_price(Side side) const {
+    const std::vector<RestingOrder> sorted = orders(side);
+    return sorted.empty() ? std::nullopt : std::optional<Price>(sorted.front().price);
+  }
+  std::vector<Level> depth(Side side) const {
+    std::vector<Level> levels;
+    for (const RestingOrder& order : orders(side)) {
+      if (levels.empty() || levels.back().price != order.price) levels.push_back(Level{order.price, Quantity{0}});
+      levels.back().quantity += order.remaining;
+    }
+    return levels;
+  }
+  // Newest first within a price, as this book trades them.
+  std::vector<RestingOrder> orders(Side side) const {
+    std::vector<RestingOrder> sorted(side == Side::Buy ? bids_ : asks_);
+    std::reverse(sorted.begin(), sorted.end());
+    std::stable_sort(sorted.begin(), sorted.end(), [](const RestingOrder& a, const RestingOrder& b) {
+      return a.side == Side::Buy ? a.price > b.price : a.price < b.price;
+    });
+    return sorted;
+  }
+  std::size_t size() const { return bids_.size() + asks_.size(); }
+  OrderId last_accepted_id() const { return last_accepted_; }
+
+ private:
+  // Whether `a` beats `b` by price alone (higher bids, lower asks).
+  static bool better(const RestingOrder& a, const RestingOrder& b) {
+    return a.side == Side::Buy ? a.price > b.price : a.price < b.price;
+  }
+  static bool crosses(const NewOrder& taker, Price maker_price) {
+    if (taker.type == OrderType::Market) return true;
+    return taker.side == Side::Buy ? maker_price <= taker.price : maker_price >= taker.price;
+  }
+
+  std::vector<RestingOrder> bids_;
+  std::vector<RestingOrder> asks_;
+  OrderId last_accepted_{0};
 };
 
 }  // namespace orderbook::broken

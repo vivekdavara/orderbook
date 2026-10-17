@@ -6,8 +6,8 @@
 //
 // A disagreement on a long random stream is shrunk with minimize() to the few commands that still show it, and
 // written out as a scenario file: each command with the expected book's events, a comment with what the other book
-// did differently, and the expected depth at the end. The book under test fails that file, the expected one passes
-// it, and saved under tests/scenarios/ it becomes a regression test.
+// did differently, and the expected depth at the end. When the books' events differed, the book under test fails
+// that file and the expected one passes it, so saved under tests/scenarios/ it becomes a regression test.
 
 #include <cstddef>
 #include <optional>
@@ -91,7 +91,8 @@ class Lockstep {
 };
 
 struct Difference {
-  std::size_t index = 0;  // the command, from 0, at which (or after which) the books were first seen to differ
+  std::size_t index = 0;   // the command, from 0, at which (or after which) the books were first seen to differ
+  bool in_events = false;  // whether that command's events differed, rather than only the states after it
   std::string what;
 };
 
@@ -101,10 +102,14 @@ template <typename Expected, typename Actual>
 std::optional<Difference> first_difference(const std::vector<Command>& commands, std::size_t state_every = 0) {
   Lockstep<Expected, Actual> books;
   for (std::size_t i = 0; i < commands.size(); ++i) {
-    if (auto what = books.apply(commands[i])) return Difference{i, "command " + std::to_string(i + 1) + ": " + *what};
+    if (auto what = books.apply(commands[i])) {
+      return Difference{i, true, "command " + std::to_string(i + 1) + ": " + *what};
+    }
     const bool last = i + 1 == commands.size();
     if (last || (state_every > 0 && (i + 1) % state_every == 0)) {
-      if (auto what = books.compare()) return Difference{i, "after command " + std::to_string(i + 1) + ": " + *what};
+      if (auto what = books.compare()) {
+        return Difference{i, false, "after command " + std::to_string(i + 1) + ": " + *what};
+      }
     }
   }
   return std::nullopt;
@@ -134,15 +139,21 @@ std::string differential_scenario(const std::vector<Command>& commands, const st
 }
 
 // Shrinks a stream the two books disagree on to a 1-minimal one (every command needed), and writes that as a
-// scenario file (differential_scenario). The stream should end where the difference was seen: the shrinking
-// compares events after every command and states only at the end, so each replay costs one pass. Returns an empty
-// string if the books agree on `commands`.
+// scenario file (differential_scenario). The stream should end where the difference was seen: each replay compares
+// events after every command and states only at the end, so it costs one pass. The shrinking keeps the kind of
+// difference found first: if some command's events differed, every candidate must show different events, not
+// only different states. Otherwise a bug that shows in the state before it shows in an event (a queue in the wrong
+// order, before a trade with the wrong maker) shrinks to a stream whose events all agree, and the scenario file
+// would pass on the book under test. Returns an empty string if the books agree on `commands`.
 template <typename Expected, typename Actual>
 std::string shrink_to_scenario(const std::vector<Command>& commands) {
-  const auto differs = [](const std::vector<Command>& candidate) {
-    return first_difference<Expected, Actual>(candidate).has_value();
+  const std::optional<Difference> found = first_difference<Expected, Actual>(commands);
+  if (!found) return {};
+  const bool in_events = found->in_events;
+  const auto differs = [in_events](const std::vector<Command>& candidate) {
+    const std::optional<Difference> difference = first_difference<Expected, Actual>(candidate);
+    return difference.has_value() && difference->in_events == in_events;
   };
-  if (!differs(commands)) return {};
   const std::vector<Command> shrunk = minimize(commands, differs);
   const std::string heading = "# The books disagree on these " + std::to_string(shrunk.size()) +
                               " commands, shrunk from " + std::to_string(commands.size()) +
