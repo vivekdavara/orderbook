@@ -209,7 +209,7 @@ order of a queue, which depth lines don't show, the file's comment names it but 
 
 Both books on the same work, measured with `make bench` at `b0e54b2` (Google Benchmark, 5 repetitions, medians) on an
 Apple M3, macOS 26.6.2, Apple Clang 21 at -O3, at 10:34 on battery (21% to 20%, Low Power Mode off) during a video
-call, load average 8.9 to 15.7. Synthetic commands from `RandomFlow` (seed 42, the default mix): a warm-up fills a
+call, load average 8.9 to 15.7 (the rows marked * are from a second run). Synthetic commands from `RandomFlow` (seed 42, the default mix): a warm-up fills a
 book to its size, then the same 10,000 commands are timed against it, for each book; the `resting` counters (7, 70,
 583, 5,410) show both started from the same book. Coefficients of variation were 4.1% at most.
 
@@ -217,16 +217,22 @@ book to its size, then the same 10,000 commands are timed against it, for each b
 |---|---|---|---|---|---|---|
 | 10 | 7 | 86.0 M/s | 11.6 ns | 20.4 M/s | 49 ns | 0.24 |
 | 100 | 70 | 25.3 M/s | 40 ns | 20.9 M/s | 48 ns | 0.83 |
+| 200 * | 108 | 15.8 M/s | 63 ns | 22.7 M/s | 44 ns | 1.44 |
+| 400 * | 240 | 8.98 M/s | 111 ns | 23.1 M/s | 43 ns | 2.6 |
 | 1,000 | 583 | 4.40 M/s | 227 ns | 23.0 M/s | 43 ns | 5.2 |
 | 10,000 | 5,410 | 516 k/s | 1.94 µs | 18.9 M/s | 53 ns | 37 |
 
+\* The rows for 200 and 400 are a second run, of those sizes alone, at 10:41 (battery 17%, load average 4.7 to 6.1;
+the same code, with the two sizes added to the benchmark in `bench/book_bench.cpp`); the reference model's 200 row
+had a coefficient of variation of 10.8% in wall time.
+
 The engine's cost per command stays between 43 and 53 ns from 7 orders to 5,410, where the reference model's grows
 with the book (it scans a side for every fill and cancel). But on small books the engine is slower: 4 times slower at
-7 orders, and still slower at 70. The reference model's whole side is then a few cache lines of a vector it scans
-without allocating, while the engine allocates a list node, a hash node and sometimes a map node for each order that
-rests, frees them as it fills and cancels, and follows pointers through all three. Taking that allocation and
-pointer-chasing off the hot path is day 3's work (intrusive lists, a pool, an open-addressing index), measured against
-these numbers on power.
+7 orders, and still slower at 70; it is ahead from 108 orders on, so the crossover is between 70 and 108. On a small
+book the reference model's whole side is a few cache lines of a vector it scans without allocating, while the engine
+allocates a list node, a hash node and sometimes a map node for each order that rests, frees them as it fills and
+cancels, and follows pointers through all three. Taking that allocation and pointer-chasing off the hot path is day
+3's work (intrusive lists, a pool, an open-addressing index), measured against these numbers on power.
 
 ## Results (day 1)
 

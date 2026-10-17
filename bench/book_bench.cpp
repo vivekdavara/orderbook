@@ -66,7 +66,7 @@ void BM_ReferenceBook(benchmark::State& state) {
   state.SetItemsProcessed(state.iterations() * static_cast<benchmark::IterationCount>(load.timed.size()));
   state.counters["resting"] = static_cast<double>(warmed.size());
 }
-BENCHMARK(BM_ReferenceBook)->Arg(10)->Arg(100)->Arg(1'000)->Arg(10'000)->Unit(benchmark::kMillisecond);
+BENCHMARK(BM_ReferenceBook)->Arg(10)->Arg(100)->Arg(200)->Arg(400)->Arg(1'000)->Arg(10'000)->Unit(benchmark::kMillisecond);
 
 // The engine on exactly the reference model's commands and book (the differential tests say the books are the
 // same after every command). A Book can't be copied, since its index points into its own containers, so each
@@ -97,7 +97,7 @@ void BM_Engine(benchmark::State& state) {
   state.SetItemsProcessed(state.iterations() * static_cast<benchmark::IterationCount>(load.timed.size()));
   state.counters["resting"] = static_cast<double>(resting);
 }
-BENCHMARK(BM_Engine)->Arg(10)->Arg(100)->Arg(1'000)->Arg(10'000)->Unit(benchmark::kMillisecond);
+BENCHMARK(BM_Engine)->Arg(10)->Arg(100)->Arg(200)->Arg(400)->Arg(1'000)->Arg(10'000)->Unit(benchmark::kMillisecond);
 
 }  // namespace
 }  // namespace orderbook
