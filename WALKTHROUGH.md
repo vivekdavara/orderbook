@@ -214,8 +214,9 @@ new, in a file the broken book fails.
 **How is the code fuzzed?**
 Two libFuzzer targets in `fuzz/`: arbitrary bytes into the text parsers (a line that parses must format and parse back
 to itself), and bytes decoded into commands on 16 prices for both books in lockstep, their events and states compared
-after every command, with the Audit and `check_book` on the engine. CI runs each for 60 s under ASan and UBSan; Apple Clang has no libFuzzer, so on the Mac and in
-the other jobs a small `main()` runs them on the scenario files and on seeded random inputs.
+after every command, with the Audit and `check_book` on the engine. CI runs each for 60 s under ASan and UBSan; Apple
+Clang has no libFuzzer, so on the Mac and in the other jobs a small `main()` runs them on the scenario files and on
+seeded random inputs.
 
 ## Build and CI
 

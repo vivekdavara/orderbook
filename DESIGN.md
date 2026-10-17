@@ -251,9 +251,9 @@ replay and L2 snapshots.
   shrinks to commands whose events still differ, so the engine fails the file. A difference only in the state
   shrinks by the state; the file's depth lines then catch it unless it is in the order of a queue.
 - **Fuzzing.** CI runs two libFuzzer targets for 60 s each under the sanitizers: the text format (seeded with the
-  scenario files) and the books: the engine and the reference model in lockstep, their events and states compared
-  after every command, with the Audit and `check_book` on the engine. Elsewhere CTest runs them on fixed inputs. An input that crashes in
-  CI is kept as the run's `fuzz-findings` artifact and replays with the standalone build
+  scenario files) and the books: the engine and the reference model in lockstep, their events and states compared after
+  every command, with the Audit and `check_book` on the engine. Elsewhere CTest runs them on fixed inputs. An input that
+  crashes in CI is kept as the run's `fuzz-findings` artifact and replays with the standalone build
   (`build/dev/fuzz/book_fuzz <file>`).
 - **Sanitizers.** CI runs every test under AddressSanitizer and UndefinedBehaviorSanitizer.
 - **Coverage.** `make coverage` reports the tests' line and branch coverage of `src/` and `include/`.

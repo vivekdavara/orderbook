@@ -208,10 +208,11 @@ order of a queue, which depth lines don't show, the file's comment names it but 
 ## Results (day 2)
 
 Both books on the same work, measured with `make bench` at `b0e54b2` (Google Benchmark, 5 repetitions, medians) on an
-Apple M3, macOS 26.6.2, Apple Clang 21 at -O3, at 10:34 on battery (21% to 20%, Low Power Mode off) during a video
-call, load average 8.9 to 15.7 (the rows marked * are from a second run). Synthetic commands from `RandomFlow` (seed 42, the default mix): a warm-up fills a
-book to its size, then the same 10,000 commands are timed against it, for each book; the `resting` counters (7, 70,
-583, 5,410) show both started from the same book. Coefficients of variation were 4.1% at most.
+Apple M3, macOS 26.6.2, Apple Clang 21 at -O3, at 10:34 on battery (21% to 20%, Low Power Mode off) during a video call,
+load average 8.9 to 15.7 (the rows marked * are from a second run). Synthetic commands from `RandomFlow` (seed 42, the
+default mix): a warm-up fills a book to its size, then the same 10,000 commands are timed against it, for each book; the
+`resting` counters (7, 70, 583, 5,410) show both started from the same book. Coefficients of variation were 4.1% at
+most.
 
 | Book held near | Resting at the start | Reference model | Per command | Engine | Per command | Engine ÷ reference |
 |---|---|---|---|---|---|---|
