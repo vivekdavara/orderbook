@@ -1,13 +1,17 @@
-// orderbook: a command-line tool over the test kit, using the reference model (day 2 adds the engine).
+// orderbook: a command-line tool over the engine and the test kit.
 //
-//   orderbook check FILE...           run scenario files; exit 1 if any doesn't match
-//   orderbook run [FILE]              apply commands (from FILE or stdin) and print a scenario transcript
-//   orderbook gen SEED COUNT [opts]   print COUNT random commands, one "> ..." line each
-//   orderbook audit SEED COUNT [opts] run a random stream with every invariant check on, and print a summary
+//   orderbook [--book B] check FILE...           run scenario files; exit 1 if any doesn't match
+//   orderbook [--book B] run [FILE]              apply commands (from FILE or stdin) and print a scenario transcript
+//   orderbook gen SEED COUNT [opts]              print COUNT random commands, one "> ..." line each
+//   orderbook [--book B] audit SEED COUNT [opts] run a random stream with every invariant check on; print a summary
+//   orderbook diff SEED COUNT [opts] [--every N] run a random stream through the reference model and the engine,
+//                                                comparing every event, and their states every N commands (1,000)
 //
-// gen's and audit's options: --target N, --range N, --max-quantity N, --invalid PER_MILLE (RandomFlow's options).
-// `orderbook gen 1 20 | orderbook run` prints what the reference model does with a stream; the transcript is
-// itself a scenario file, so `orderbook check` passes it.
+// B is `engine` (the default) or `reference`. The options: --target N, --range N, --max-quantity N, --invalid
+// PER_MILLE (RandomFlow's options). `orderbook gen 1 20 | orderbook run` prints what the engine does with a stream;
+// the transcript is itself a scenario file, so `orderbook check` passes it, on either book. When diff finds a
+// difference it prints the shrunk commands as a scenario file and exits 1: `orderbook check` of that file fails on
+// the engine and passes on the reference model.
 
 #include <algorithm>
 #include <array>
@@ -25,7 +29,9 @@
 #include <variant>
 #include <vector>
 
+#include "orderbook/book.hpp"
 #include "orderbook/check.hpp"
+#include "orderbook/differential.hpp"
 #include "orderbook/random_flow.hpp"
 #include "orderbook/reference_book.hpp"
 #include "orderbook/scenario.hpp"
@@ -38,10 +44,11 @@ using namespace orderbook;
 constexpr int kUsageError = 2;
 
 int usage() {
-  std::cerr << "usage: orderbook check FILE...\n"
-               "       orderbook run [FILE]\n"
+  std::cerr << "usage: orderbook [--book engine|reference] check FILE...\n"
+               "       orderbook [--book engine|reference] run [FILE]\n"
                "       orderbook gen SEED COUNT [--target N] [--range N] [--max-quantity N] [--invalid PER_MILLE]\n"
-               "       orderbook audit SEED COUNT [same options as gen]\n";
+               "       orderbook [--book engine|reference] audit SEED COUNT [same options as gen]\n"
+               "       orderbook diff SEED COUNT [same options as gen] [--every N]\n";
   return kUsageError;
 }
 
@@ -63,6 +70,7 @@ std::optional<Int> to_int(std::string_view text) {
   return value;
 }
 
+template <typename AnyBook>
 int check(const std::vector<std::string>& files) {
   if (files.empty()) return usage();
   int failed = 0;
@@ -80,7 +88,7 @@ int check(const std::vector<std::string>& files) {
       ++failed;
       continue;
     }
-    ReferenceBook book;
+    AnyBook book;
     const std::string mismatch = run_scenario(*scenario, book);
     if (mismatch.empty()) {
       std::cout << "ok " << file << " (" << scenario->size() << " commands)\n";
@@ -92,15 +100,17 @@ int check(const std::vector<std::string>& files) {
   return failed == 0 ? 0 : 1;
 }
 
-void print_depth(const ReferenceBook& book) {
+template <typename AnyBook>
+void print_depth(const AnyBook& book) {
   for (const Side side : {Side::Buy, Side::Sell}) {
     const std::string levels = format(book.depth(side));
     std::cout << (side == Side::Buy ? "= bids" : "= asks") << (levels.empty() ? "" : " ") << levels << "\n";
   }
 }
 
+template <typename AnyBook>
 int run(std::istream& in) {
-  ReferenceBook book;
+  AnyBook book;
   std::vector<Event> events;
   std::string line;
   int number = 0;
@@ -134,9 +144,10 @@ struct FlowArgs {
   std::uint64_t seed = 0;
   std::uint64_t count = 0;
   FlowOptions options;
+  std::uint64_t every = 1000;  // diff's --every
 };
 
-std::optional<FlowArgs> parse_flow_args(const std::vector<std::string>& args) {
+std::optional<FlowArgs> parse_flow_args(const std::vector<std::string>& args, bool takes_every) {
   if (args.size() < 2) return std::nullopt;
   FlowArgs parsed;
   const auto seed = to_int<std::uint64_t>(args[0]);
@@ -157,6 +168,8 @@ std::optional<FlowArgs> parse_flow_args(const std::vector<std::string>& args) {
       parsed.options.max_quantity = *value;
     } else if (flag == "--invalid" && *value <= 1000) {
       parsed.options.invalid_per_mille = static_cast<int>(*value);
+    } else if (flag == "--every" && takes_every && *value >= 1) {
+      parsed.every = static_cast<std::uint64_t>(*value);
     } else {
       return std::nullopt;
     }
@@ -170,9 +183,10 @@ int gen(const FlowArgs& args) {
   return 0;
 }
 
+template <typename AnyBook>
 int audit(const FlowArgs& args) {
   RandomFlow flow(args.seed, args.options);
-  ReferenceBook book;
+  AnyBook book;
   Audit checker;
   std::vector<Event> events;
   std::array<std::uint64_t, 4> kinds{};  // accepted or rejected, trades, cancelled; indexed by the variant
@@ -203,29 +217,54 @@ int audit(const FlowArgs& args) {
   return checker.ok() && sound ? 0 : 1;
 }
 
+// The reference model is the expected book and the engine the one under test.
+int diff(const FlowArgs& args) {
+  const StreamDifference result = diff_random_stream<ReferenceBook, Book>(args.seed, args.options, args.count,
+                                                                         args.every);
+  if (result.difference) {
+    std::cerr << "the engine differs from the reference model at " << result.difference->what << "\n";
+    std::cout << result.scenario;
+    return 1;
+  }
+  std::cout << "commands " << result.commands << ": the same events from both books, and the same state every "
+            << args.every << " commands and at the end\n";
+  return 0;
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
-  const std::vector<std::string> args(argv + 1, argv + argc);
+  std::vector<std::string> args(argv + 1, argv + argc);
+  bool engine = true;
+  bool book_named = false;
+  if (!args.empty() && args[0] == "--book") {
+    if (args.size() < 2 || (args[1] != "engine" && args[1] != "reference")) return usage();
+    engine = args[1] == "engine";
+    book_named = true;
+    args.erase(args.begin(), args.begin() + 2);
+  }
   if (args.empty()) return usage();
   const std::string& verb = args[0];
   const std::vector<std::string> rest(args.begin() + 1, args.end());
-  if (verb == "check") return check(rest);
+  if (verb == "check") return engine ? check<Book>(rest) : check<ReferenceBook>(rest);
   if (verb == "run") {
-    if (rest.empty()) return run(std::cin);
+    if (rest.empty()) return engine ? run<Book>(std::cin) : run<ReferenceBook>(std::cin);
     if (rest.size() > 1) return usage();
     std::ifstream in(rest[0]);
     if (!in) {
       std::cerr << rest[0] << ": can't read it\n";
       return 1;
     }
-    return run(in);
+    return engine ? run<Book>(in) : run<ReferenceBook>(in);
   }
-  if (verb == "gen" || verb == "audit") {
-    const auto flow_args = parse_flow_args(rest);
-    if (!flow_args) return usage();
+  if (verb == "gen" || verb == "audit" || verb == "diff") {
+    const auto flow_args = parse_flow_args(rest, verb == "diff");
+    // gen uses no book and diff uses both, so naming one is a mistake.
+    if (!flow_args || (book_named && verb != "audit")) return usage();
     try {
-      return verb == "gen" ? gen(*flow_args) : audit(*flow_args);
+      if (verb == "gen") return gen(*flow_args);
+      if (verb == "diff") return diff(*flow_args);
+      return engine ? audit<Book>(*flow_args) : audit<ReferenceBook>(*flow_args);
     } catch (const std::invalid_argument& error) {  // options RandomFlow can't honour
       std::cerr << "orderbook: " << error.what() << "\n";
       return kUsageError;
