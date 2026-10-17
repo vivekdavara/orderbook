@@ -71,6 +71,30 @@ TEST(Differential, FindsADifferenceInStateWhenEveryEventAgrees) {
   EXPECT_EQ(every_command->what, "after command 3: bids depth: expected '100x1 99x1 98x1', actual '100x1 99x1'");
 }
 
+TEST(Differential, ComparesEveryPartOfTheState) {
+  // Each book below gets one thing wrong that no event shows, and each is named in the difference.
+  const auto best = first_difference<ReferenceBook, broken::BookWithNoBestPriceForALoneOrder>(
+      parse_lines({"new 1 buy limit 1 @ 100"}), 1);
+  ASSERT_TRUE(best.has_value());
+  EXPECT_EQ(best->what, "after command 1: bids best price: expected 100, actual none");
+
+  const auto size = first_difference<ReferenceBook, broken::BookThatCountsCancelledOrders>(
+      parse_lines({"new 1 sell limit 1 @ 100", "cancel 1"}), 1);
+  ASSERT_TRUE(size.has_value());
+  EXPECT_EQ(size->what, "after command 2: size: expected 0, actual 1");
+
+  const auto last_id = first_difference<ReferenceBook, broken::BookThatReportsTheLastIdSeen>(
+      parse_lines({"new 5 buy limit 1 @ 100", "new 9 buy limit 0 @ 100"}), 1);
+  ASSERT_TRUE(last_id.has_value());
+  EXPECT_EQ(last_id->what, "after command 2: last accepted id: expected 5, actual 9");
+
+  // And a side's orders, in priority order: here a queue in the wrong order, whose depth is right.
+  const auto orders = first_difference<ReferenceBook, broken::BookWithNewestFirstQueues>(
+      parse_lines({"new 1 buy limit 1 @ 100", "new 2 buy limit 2 @ 100"}), 1);
+  ASSERT_TRUE(orders.has_value());
+  EXPECT_EQ(orders->what, "after command 2: bids: expected '1:100x1 2:100x2', actual '2:100x2 1:100x1'");
+}
+
 TEST(Differential, ShrinksARandomPriceBugToAScenarioTheBrokenBookFails) {
   const std::vector<Command> commands = random_commands(12, 3'000, FlowOptions{.target_resting = 100});
   const auto difference = first_difference<ReferenceBook, broken::BookWithAPriceBug>(commands);

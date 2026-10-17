@@ -77,6 +77,54 @@ class BookWithShortDepth : public WrappedReferenceBook {
   }
 };
 
+// The three below each get one more of the reported state wrong, with every event right, so that each part of
+// state_difference is shown to be compared.
+
+// Reports no best price for a side holding a single order.
+class BookWithNoBestPriceForALoneOrder : public WrappedReferenceBook {
+ public:
+  void apply(const Command& command, std::vector<Event>& events) { book_.apply(command, events); }
+
+  std::optional<Price> best_price(Side side) const {
+    if (book_.orders(side).size() == 1) return std::nullopt;
+    return book_.best_price(side);
+  }
+};
+
+// Counts every order a cancel removed as still resting.
+class BookThatCountsCancelledOrders : public WrappedReferenceBook {
+ public:
+  void apply(const Command& command, std::vector<Event>& events) {
+    const std::size_t first = events.size();
+    book_.apply(command, events);
+    for (std::size_t i = first; i < events.size(); ++i) {
+      if (const auto* cancelled = std::get_if<Cancelled>(&events[i]);
+          cancelled != nullptr && cancelled->reason == CancelReason::Requested) {
+        ++cancelled_;
+      }
+    }
+  }
+
+  std::size_t size() const { return book_.size() + cancelled_; }
+
+ private:
+  std::size_t cancelled_ = 0;
+};
+
+// Reports the highest id of any new order it was sent, accepted or not.
+class BookThatReportsTheLastIdSeen : public WrappedReferenceBook {
+ public:
+  void apply(const Command& command, std::vector<Event>& events) {
+    if (const auto* order = std::get_if<NewOrder>(&command); order != nullptr && order->id > seen_) seen_ = order->id;
+    book_.apply(command, events);
+  }
+
+  OrderId last_accepted_id() const { return seen_; }
+
+ private:
+  OrderId seen_{0};
+};
+
 // Time priority backwards: at the best price, the newest order trades first, and orders() lists each price's orders
 // newest first. Otherwise the reference model's rules, written the same direct way (a vector of each side's orders
 // in arrival order). The wrong order shows in the state as soon as two orders rest at one price, but in an event
