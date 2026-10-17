@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <optional>
 #include <unordered_map>
 #include <variant>
@@ -48,6 +49,22 @@ class BookWithAPriceBug : public WrappedReferenceBook {
 
  private:
   std::unordered_map<std::uint64_t, int> trades_;
+};
+
+// The price bug, in a book that aborts if a second one is ever made. `orderbook diff` makes one for the run that
+// finds the difference and more to shrink it, so a test build of the tool around this book shows whether the
+// difference was reported before the shrinking started.
+class BookWithAPriceBugThatCrashesWhenReplayed : public BookWithAPriceBug {
+ public:
+  BookWithAPriceBugThatCrashesWhenReplayed() {
+    if (made()++ > 0) std::abort();
+  }
+
+ private:
+  static int& made() {
+    static int count = 0;
+    return count;
+  }
 };
 
 // Forgets to report a market order's unfilled remainder: one command is enough.

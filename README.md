@@ -402,8 +402,9 @@ fixing them:
   directory**. Signal traps now stop the runs and clean up, the path is made absolute before the script's `cd`, and a
   run is reported as ok, DIFFERENT, or FAILED with its exit code (`820061f`).
 
-Its three surviving mutations (the CLI's `run` and `audit` ignoring `--book`, and state lines that accepted trailing
-words) now fail tests (`7681692`).
+Its three surviving mutations now fail tests: `diff` shrinking before it reports (caught by a test build of the tool
+around a book that aborts once the shrinking starts), the CLI's `run` and `audit` ignoring `--book`, and state lines
+that accepted trailing words (`7681692` and the commit after it).
 
 ## Design decisions
 

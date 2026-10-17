@@ -91,6 +91,18 @@ add_test(NAME cli.broken_engine.diffs_scenario_fails_the_engine_and_passes_the_r
   \"$1\" --book reference check \"$2\" && ! \"$1\" check \"$2\" && ! \"$1\" --book engine check \"$2\"" sh
           $<TARGET_FILE:orderbook_cli_broken> ${CMAKE_CURRENT_BINARY_DIR}/broken_engine_diff.txt)
 
+# And around one that aborts once the shrinking starts: diff must already have said where the books differ.
+add_executable(orderbook_cli_crashing ${PROJECT_SOURCE_DIR}/tools/orderbook_cli.cpp)
+target_compile_definitions(orderbook_cli_crashing PRIVATE
+  ORDERBOOK_CLI_ENGINE_HEADER="${CMAKE_CURRENT_SOURCE_DIR}/broken_books.hpp"
+  ORDERBOOK_CLI_ENGINE=orderbook::broken::BookWithAPriceBugThatCrashesWhenReplayed)
+target_link_libraries(orderbook_cli_crashing PRIVATE orderbook::testkit)
+orderbook_set_warnings(orderbook_cli_crashing)
+add_test(NAME cli.crashing_engine.diff_reports_the_difference_before_shrinking
+  COMMAND sh -c "\"$1\" diff 12 3000 --target 100 > /dev/null 2> \"$2\"; code=$?;
+  test $code -gt 1 && grep -q 'the engine differs from the reference model: command 54: events' \"$2\"" sh
+          $<TARGET_FILE:orderbook_cli_crashing> ${CMAKE_CURRENT_BINARY_DIR}/crashing_engine_diff.err)
+
 # run and audit use the book --book names too. The broken engine's transcript of a random stream fails the reference
 # model's check, and its --book reference transcript passes; its audit fails, and its --book reference audit passes.
 add_test(NAME cli.broken_engine.run_uses_the_book_named
