@@ -4,13 +4,16 @@ A limit order book and matching engine in C++20: price-time priority, with limit
 (IOC) and cancel orders, built to be checked against a written specification and then made fast without changing
 a single event.
 
-**Status: day 2 of 5.** Day 1 built the specification ([DESIGN.md](DESIGN.md)), the shared types and text format,
+**Status: day 3 of 5.** Day 1 built the specification ([DESIGN.md](DESIGN.md)), the shared types and text format,
 the reference model that implements the rules literally, and the test kit around it (scenario files, a seeded random
 command stream, invariant checks, a minimizer for failing runs, two fuzz targets, a command-line tool, benchmarks,
-coverage, CI on Linux and macOS). Day 2 adds the matching engine (`Book`: price levels in a map, a FIFO queue per
-level, an id index for cancels) and a differential harness that runs it against the reference model, comparing every
-event of 720,000 random commands in the tests (and as many as wanted from the CLI), and shrinks any disagreement to
-a scenario file. Day 3 makes the engine fast.
+coverage, CI on Linux and macOS). Day 2 added the matching engine (price levels in a map, a FIFO queue per level, an
+id index for cancels) and a differential harness that runs it against the reference model, comparing every event of
+720,000 random commands in the tests (and as many as wanted from the CLI), and shrinks any disagreement to a scenario
+file. Day 3 rebuilt the engine for speed without changing an event (`Book`: order nodes in a pool linked by index,
+intrusive FIFO levels, sorted level vectors, an open-addressing id table; nothing allocated once the book has room),
+kept day 2's as `MapBook`, the baseline, and put the engine on its own thread between two lock-free single-producer
+single-consumer rings, with latency percentiles measured from the sender's side. Day 4 adds the TCP gateway.
 
 ## Why it is built this way
 
@@ -47,15 +50,28 @@ flowchart LR
     E -- state --> C[check_book<br/>I1, I5]
 ```
 
-The target system (day 4) puts the engine on its own thread between a TCP gateway and two lock-free rings; DESIGN.md
-has that diagram and the plan for each day.
+The engine's thread (day 3), as `EngineThread` runs it; day 4 puts a TCP gateway where the sender is:
+
+```mermaid
+flowchart LR
+    S[Sender thread<br/>day 4: the gateway] -- "Request {sequence, command}" --> Q1[(SPSC ring<br/>16,384)]
+    Q1 --> E[Engine thread<br/>owns the Book]
+    E -- "Report {sequence, event, last}" --> Q2[(SPSC ring<br/>16,384)]
+    Q2 --> S
+```
+
+DESIGN.md has the full target system and the plan for each day.
 
 | Path | What it is |
 |---|---|
 | `include/orderbook/types.hpp` | `Price` (ticks), `Quantity` (lots), `OrderId` as distinct types; sides; order types; the validation bounds |
 | `include/orderbook/command.hpp`, `event.hpp` | Commands (new order, cancel) and events (accepted, rejected, trade, cancelled) |
 | `include/orderbook/text.hpp` | The one-line text form of each, and depth (`101x10 100x5`) |
-| `include/orderbook/book.hpp`, `src/book.cpp` | The engine (`Book`) |
+| `include/orderbook/book.hpp`, `src/book.cpp` | The engine (`Book`, day 3) |
+| `include/orderbook/id_table.hpp` | The engine's open-addressing index from order id to node |
+| `include/orderbook/spsc_ring.hpp` | The lock-free single-producer single-consumer ring |
+| `include/orderbook/engine_thread.hpp`, `src/engine_thread.cpp` | The engine on its own thread, between two rings |
+| `include/orderbook/map_book.hpp`, `src/map_book.cpp` | Day 2's engine (`MapBook`), kept as the baseline (test kit) |
 | `include/orderbook/resting_order.hpp` | A resting order as both books report it |
 | `include/orderbook/reference_book.hpp` | The reference model |
 | `include/orderbook/scenario.hpp` | Scenario files: parse and run against any book |
@@ -64,30 +80,48 @@ has that diagram and the plan for each day.
 | `include/orderbook/minimize.hpp` | Shrinks a failing command stream to the commands the failure needs |
 | `include/orderbook/differential.hpp` | Two books in lockstep: the first difference, shrunk to a scenario file |
 | `tools/orderbook_cli.cpp` | The `orderbook` command-line tool |
-| `tests/`, `bench/`, `fuzz/` | GoogleTest suite and scenario files; Google Benchmark suite; libFuzzer targets |
+| `tests/`, `bench/`, `fuzz/` | GoogleTest suite and scenario files; Google Benchmark suite and `bench/latency.cpp` (latency percentiles); libFuzzer targets |
 | `scripts/gcc_check.sh` | Compiles the project with Homebrew's GCC, to catch GCC-only warnings before CI does |
 
-The `orderbook` library holds the engine and has no dependencies; `orderbook_testkit` holds the reference model and
-the checks, for tests, benchmarks and the tool.
+The `orderbook` library holds the engine, its thread and rings, and needs only the standard library and threads;
+`orderbook_testkit` holds the reference model, day 2's engine and the checks, for tests, benchmarks and the tool.
 
 ### The engine
 
-Each side is a `std::map` from price to that price's level, kept best first, so the best price is the map's first
-entry. Each level is a `std::list` of its orders in arrival order, with its total quantity kept as orders fill and
-cancel. An index (`std::unordered_map`) from order id to the order's place, an iterator to its level and one to its
-list node, makes a cancel O(1) amortised: no search for the order, none for its level.
+Day 3's engine (`Book`; DESIGN.md "The engine" has the details and the alternatives):
+
+- **A pool of order nodes.** Every resting order is a 40-byte node in one vector; nodes an order leaves go on a free
+  list and are reused, so once the book has been as big as it gets, nothing is allocated. Nodes are linked by 32-bit
+  indices, not pointers, so the pool can grow, and the book can be moved or copied, without breaking a link.
+- **Levels are intrusive FIFOs** of those nodes (the level holds its oldest and newest, each node its neighbours), with
+  the level's total kept as orders fill and cancel.
+- **Each side is a vector of levels sorted worst first**, so the best level is the back: takers fill from the back and
+  pop levels they empty; a level is found by binary search on price.
+- **An open-addressing id table** (`IdTable`: linear probing, at most half full, Fibonacci hashing, deletion by
+  backward shift, so no tombstones) finds the order a cancel names.
+- **Room made up front** (`BookCapacity`, 4,096 orders and 1,024 levels a side by default): within it, matching never
+  allocates (a test counts calls to `operator new`); past it, the book grows at each new high-water mark.
 
 | Operation | Cost |
 |---|---|
-| New order that rests | O(log L) to find or make its level (L levels on its side), O(1) to queue it, O(1) on average to index it (a hash insert) |
-| A taker's fills | O(1) per maker filled or reached; O(1) amortised to drop each level it empties |
-| Cancel | O(1) amortised: the index finds the node, the list unlinks it, an emptied level is erased by iterator |
-| Best price | O(1): the first entry of the side's map |
+| New order that rests | O(log L) binary search for its level (L levels on its side), O(1) to append and index it; a new level is a vector insert that moves the levels better than it |
+| A taker's fills | O(1) per maker filled or reached; O(1) to pop each level it empties (the back) |
+| Cancel | One index probe on average, O(log L) to find its level, O(1) to unlink; an emptied level is erased, moving the levels above it |
+| Best price | O(1): the back of the side's vector |
 | Depth | O(L): one entry per level, from its kept total |
 
-`Book` is move-only: its index holds iterators into its own containers, so a member-wise copy would leave the copy's
-index pointing into the original (the copy constructor is deleted, and a test says so). Moving keeps them valid,
-since node-based containers hand over their nodes.
+`Book` is copyable and movable member by member (links are indices into its own pool); a moved-from book is empty and
+usable. Day 2's engine (`std::map` of `std::list` levels, an `std::unordered_map` index) is `MapBook` in the test kit:
+the baseline in every benchmark, and a third book every rule test and scenario file runs on.
+
+### The engine's thread
+
+`EngineThread` owns a `Book` on a thread of its own. A sender pushes `Request{sequence, command}` into one SPSC ring
+and pops `Report{sequence, event, last}` from another; every command has at least one event, and its last is
+flagged. The ring (`SpscRing`) is lock-free: one release store publishes a slot and one acquire load sees it, each
+side caches the other's index, and the two indices live on separate 128-byte lines. The engine spins on an empty ring
+(with the core's pause hint); the sender must keep receiving while it waits to send (back-pressure both ways);
+`stop()` lets the engine apply everything already sent.
 
 ## The rules in one example
 
@@ -141,11 +175,12 @@ configure time as release tarballs pinned by SHA-256.
 make check
 ```
 
-Configures the `dev` preset (Debug, warnings as errors) into `build/dev`, builds everything, and runs the 180 tests.
-`make asan` runs them under AddressSanitizer and UndefinedBehaviorSanitizer; `make bench` builds the `release`
-preset (-O3) and runs the benchmarks; `make soak` runs the engine against the reference model on 1.04 billion random
-commands (below); `make coverage` reports the tests' line and branch coverage (Clang only);
-`make gcc-check` compiles the project's files with GCC 15, Debug and Release, warnings as errors.
+Configures the `dev` preset (Debug, warnings as errors) into `build/dev`, builds everything, and runs the 246 tests.
+`make asan` runs them under AddressSanitizer and UndefinedBehaviorSanitizer; `make tsan` runs the threaded ones (the
+ring's and the engine thread's) under ThreadSanitizer; `make bench` builds the `release` preset (-O3) and runs the
+benchmarks; `make latency` runs the latency percentiles (below); `make soak` runs the engine against the reference
+model on 1.04 billion random commands (below); `make coverage` reports the tests' line and branch coverage (Clang
+only); `make gcc-check` compiles the project's files with GCC 15, Debug and Release, warnings as errors.
 
 The command-line tool (`build/dev/orderbook`; `check`, `run` and `audit` use the engine unless given
 `--book reference`):
@@ -299,9 +334,11 @@ core's.
 
 ## Tests
 
-180 tests (`make check`), each a separate CTest test. CI runs them on four jobs (GCC 14 and Clang 18 on Ubuntu, Apple
-Clang on macOS, each Debug and Release, and Clang under ASan and UBSan), fuzzes on a fifth, and runs `make soak` with
-GCC 14 on a sixth: at `f833616`, `24 runs, 1040000000 commands, in 71 s`.
+246 tests (`make check`), each a separate CTest test. CI runs them on four jobs (GCC 14 and Clang 18 on Ubuntu, Apple
+Clang on macOS, each Debug and Release, and Clang under ASan and UBSan), runs the threaded ones under ThreadSanitizer
+on a fifth (`make tsan`), fuzzes on a sixth, and runs `make soak` with GCC 14 on a seventh: at `f833616`, `24 runs,
+1040000000 commands, in 71 s`. The first three also run the benchmarks and `orderbook_latency` briefly, as smoke
+tests.
 
 `make coverage` at `5a2c8c2` (day 2): 98.3% of lines (1,112 of 1,131) and 96.0% of branches (672 of 700); the engine
 (`src/book.cpp`) and the reference model are at 100% of both, and `src/scenario.cpp` misses only the fallback after a
@@ -319,9 +356,13 @@ branches. At `a900bb9`, 741 of 751 and 469 of 482; the second review found that 
 |---|---|
 | `types_test.cpp` | The strong types don't convert into each other; bounds are inclusive; the words round-trip |
 | `text_test.cpp` | Each command and event's exact text; strict parsing (20 malformed lines, each with its reason); 20,000 random commands, edge values included, parse back to themselves |
-| `books_test.cpp` | Both books (a typed suite): their queries, the order of the validation checks, a rejection changing nothing, which orders can be cancelled, a sweep through levels |
-| `book_test.cpp` | The engine's structure: levels that empty leave the book, a level's total, cancels from the front, middle and back of a queue, a partly filled maker keeps its place, a sweep through 1,000 levels, a moved book's index (under ASan too), and that `Book` can't be copied |
-| `scenario_test.cpp` + `scenarios/*.txt` | Fifteen hand-written scripts, one or more per rule (the fifteenth pins queue order with state checks), on both books; the parser's and runner's error reports, with line numbers, for depth and state checks |
+| `books_test.cpp` | Every book (a typed suite: the reference model, the engine, day 2's engine): their queries, the order of the validation checks, a rejection changing nothing, which orders can be cancelled, a sweep through levels |
+| `book_test.cpp` | The engine's structure: levels that empty leave the book, a level's total, cancels from the front, middle and back of a queue, a partly filled maker keeps its place, a sweep through 1,000 levels, a moved book's index (under ASan too); day 3: the pool reuses the nodes orders leave, a book built with room for 4 orders takes 2,000 on 500 levels a side, a copy is a book of its own, a moved-from book is empty and works again |
+| `id_table_test.cpp` | The id table against `std::unordered_map` on random inserts and takes (every stored id looked up after every removal), in a 16-slot table where clusters wrap past the end (20 seeds) and in larger ones; growth by doubling at half full; moves and copies |
+| `allocation_test.cpp` (own binary) | Counts calls to `operator new` while a book applies 200,000 random commands: 0 for the engine with room, in four mixes; 169,627 to 211,721 for day 2's engine, the control; 4 past its room, as the pool, index and levels grow once |
+| `spsc_ring_test.cpp` | Full and empty, order over thousands of laps; two threads passing 300,000 and 1,000,000 values through rings of 4 and 1,024, as integers (for ThreadSanitizer) and as 64-byte structs whose fields must agree |
+| `engine_thread_test.cpp` | 100,000 random commands in three mixes through the engine's thread give exactly the events and final state of the book called directly; stopping applies everything sent; stopping returns when the engine waits on a full ring of reports; destroying a running engine joins it |
+| `scenario_test.cpp` + `scenarios/*.txt` | Fifteen hand-written scripts, one or more per rule (the fifteenth pins queue order with state checks), on all three books; the parser's and runner's error reports, with line numbers, for depth and state checks |
 | `differential_test.cpp` | The engine against the reference model, every event of 720,000 random commands in seven mixes (the default, long queues at three prices, one-lot orders, quantities to 10^9 on a nearly empty book, 30% spoiled orders, a deep book of 900+ levels a side, prices at both bounds), states compared at checkpoints (after every command in three mixes); the engine's events under the Audit and its state under `check_book` too |
 | `differential_harness_test.cpp` | The harness itself, with deliberately broken books (`broken_books.hpp`): two reference models never differ; the first differing command is named; every part of the state is compared, at the checkpoints asked for and at the end; price, depth and time-priority bugs shrink to 3 commands each, in files the broken book fails; the streaming `diff` stops where `first_difference` does |
 | `review3/*.cpp` | The day-2 review's reproductions: differences only in the best price, the number resting or the last accepted id, which now shrink to files the broken book fails |
@@ -431,8 +472,25 @@ that accepted trailing words (`7681692` and the commit after it).
 - **One comparator type for both sides** (`BetterPrice{side}`: higher first for bids, lower for asks). Bids and asks
   are then the same map type, so the index holds one kind of iterator for either side and the matching code isn't a
   template; the price of that is a branch on the side in each comparison.
-- **The index holds iterators, so `Book` is move-only.** A cancel never searches. A copy would need the index rebuilt
-  for the copy's own nodes; nothing needs a copy (the benchmark rebuilds its book from the warm-up instead).
+- **Day 2: the index held iterators, so the book was move-only.** A cancel never searched. A copy would have needed
+  the index rebuilt for the copy's own nodes. (Day 3's links are indices into the book's own pool, so it copies.)
+- **Day 3: indices, not pointers, in a pool sized up front.** Half the size of a pointer, and the book is
+  position-independent: the pool may reallocate as it grows, and the book may be moved or copied, without fixing a
+  link. Room for 4,096 orders and 1,024 levels a side by default; a caller who knows its book's size passes it.
+- **Day 3: each side a sorted vector of levels, best at the back.** The best level is a fixed, cheap place, and the
+  levels are contiguous; a new level near the top moves few entries. The price is a deep insert or erase, which moves
+  every level above it.
+- **Day 3: an open-addressing index with backward-shift deletion**, rather than `std::unordered_map`: one array, no
+  node per entry, no tombstones, a probe on average.
+- **Day 2's engine kept as `MapBook`**, so day 3's is measured against it in the same runs on the same machine (not
+  against yesterday's numbers), and the rules still run on it.
+- **Events still go into the caller's vector**, not a callback sink: a reused vector allocates nothing once it is as
+  long as the longest answer so far (the allocation test reuses one), and the vector keeps the book's interface the
+  same for every test and tool.
+- **A spinning engine thread between two SPSC rings.** The book needs no lock with one thread owning it; the rings
+  need no lock with one producer and one consumer each; spinning (with the core's pause hint) avoids a wake-up's
+  microseconds at the cost of a core. Rings report full or empty rather than wait, so the caller decides what waiting
+  means.
 - **A difference is reported as a scenario file**, shrunk by ddmin, so a failure on a random stream of a million
   commands becomes a few lines a person can read, run with `orderbook check`, and keep as a test.
 - **Its own random number generator.** `std::uniform_int_distribution` is implementation-defined, so the same seed
@@ -451,12 +509,19 @@ that accepted trailing words (`7681692` and the commit after it).
 - One instrument per book; no order modification (cancel and re-enter), self-trade prevention, fill-or-kill, stop
   or iceberg orders, auctions, fees, persistence, or negative prices.
 - The reference model is O(n) per fill and cancel by design; it is not the engine.
-- Day 2's engine allocates on the hot path (a list node and a hash node for each order that rests, a map node for each
-  new level) and is slower than the reference model on books of fewer than about a hundred orders; day 3 removes the
-  allocation.
-- Not exception-safe: if an allocation fails partway through a command (a `bad_alloc` in `rest`, between making a
-  level and indexing the order), the book can be left with an empty level or an order the index doesn't know. Day 3's
-  pool, sized up front, needs a policy for running out instead.
+- Day 2's engine (`MapBook`) allocates on the hot path and is slower than the reference model on books of fewer than
+  about a hundred orders; it stays only as a baseline.
+- Not exception-safe: if the engine has to grow past its room and the allocation fails partway through a command (a
+  `bad_alloc` in `rest`), the book can be left with an empty level or an order the index doesn't know. Within its
+  room it allocates nothing, so this can't happen there. The pool also stops at 2^32 - 1 nodes (`std::length_error`).
+- A level inserted or erased deep in the book moves every level above it (O(levels)): a book with thousands of levels
+  that come and go far from the top would pay that on each.
+- The engine's thread spins: it takes a core whether or not commands arrive. The two threads aren't pinned to cores
+  (macOS has no affinity API on Apple silicon), so the scheduler places them, and the latency tails include that.
+- The per-command latencies are in steps of the clock: `steady_clock` here counts a 24 MHz timer, 41 to 42 ns a step,
+  so a command that takes 20 ns shows as 0 or 41 ns; only the tail percentiles span many steps.
+- ThreadSanitizer (`make tsan`) doesn't see races on values copied with `memcpy` on this Mac; the ring's threaded tests
+  use integers for that reason (DESIGN.md, "Testing").
 - Shrinking a difference keeps the stream up to it in memory and replays it, about n log n times when chunks fall
   away easily; a difference found late in a long `orderbook diff` run takes correspondingly long to shrink.
 - The benchmark numbers above were measured on battery with other apps open (day 2's during a video call); day 3's

@@ -84,12 +84,12 @@ The first questions here are about day 2's engine, which is now `MapBook` (`src/
 baseline; day 3's rebuild is under "Performance (day 3)".
 
 **How was the engine built on day 2?**
-`MapBook` (`src/map_book.cpp`; it was `Book` until day 3) keeps each side as a `std::map` from price to level, best first, so the best price is
-`begin()`. A level is a `std::list` of `{id, remaining}` in arrival order plus its total quantity. An
-`std::unordered_map` from id to `{side, map iterator, list iterator}` finds a resting order without searching.
-A taker walks the opposite map from `begin()` while it crosses, trades with each level's queue from the front, erases
-filled makers from the queue and the index, and erases a level when it empties; a limit remainder is pushed to the
-back of its level (`try_emplace` makes the level if it's new) and indexed.
+`MapBook` (`src/map_book.cpp`; it was `Book` until day 3) keeps each side as a `std::map` from price to level, best
+first, so the best price is `begin()`. A level is a `std::list` of `{id, remaining}` in arrival order plus its total
+quantity. An `std::unordered_map` from id to `{side, map iterator, list iterator}` finds a resting order without
+searching. A taker walks the opposite map from `begin()` while it crosses, trades with each level's queue from the
+front, erases filled makers from the queue and the index, and erases a level when it empties; a limit remainder is
+pushed to the back of its level (`try_emplace` makes the level if it's new) and indexed.
 
 **What does each operation cost?**
 Resting a new order is O(log L) for its level (L levels on that side) and O(1) to queue and index it. Each fill is
@@ -124,10 +124,11 @@ made the price bound exclusive there, and every differential run still passed. O
 (`Books.BoundsAreInclusive`, the validation scenario, `types_test.cpp`). Shared vocabulary needs its own tests.
 
 **Is the engine deterministic, with a hash table inside?**
-Iteration order of an `unordered_map` differs between standard libraries, but day 2's engine never iterated its
-index, and day 3's never iterates its own `IdTable` either: they only look ids up. Everything that decides events or the reported state walks the maps and lists, whose order is
-the book's. A test requires the engine's events and final book on 50,000 commands to hash to the reference model's
-pinned value, on every CI job (GCC, Clang, Apple Clang; Debug, Release, sanitizers).
+Iteration order of an `unordered_map` differs between standard libraries, but day 2's engine never iterated its index,
+and day 3's never iterates its own `IdTable` either: they only look ids up. Everything that decides events or the
+reported state walks the levels and their queues, whose order is the book's. A test requires the engine's events and
+final book on 50,000 commands to hash to the reference model's pinned value, on every CI job (GCC, Clang, Apple Clang;
+Debug, Release, sanitizers).
 
 ## Performance (day 3)
 
