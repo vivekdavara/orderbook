@@ -1,16 +1,21 @@
-// Benchmarks: the random command stream, and the throughput of each book on the same commands against the same book,
-// so the engine's numbers stand beside the reference model's (day 1's baseline) and day 2's engine's (`MapBook`, the
-// baseline for day 3's). Run them from the release build: `make bench`.
+// Benchmarks: the random command stream, the throughput of each book on the same commands against the same book, so
+// the engine's numbers stand beside the reference model's (day 1's baseline) and day 2's engine's (`MapBook`, the
+// baseline for day 3's), and the SPSC ring on one thread and two. Run them from the release build: `make bench`.
 
 #include <benchmark/benchmark.h>
 
 #include <cstddef>
+#include <cstdint>
+#include <memory>
+#include <thread>
 #include <vector>
 
 #include "orderbook/book.hpp"
+#include "orderbook/engine_thread.hpp"
 #include "orderbook/map_book.hpp"
 #include "orderbook/random_flow.hpp"
 #include "orderbook/reference_book.hpp"
+#include "orderbook/spsc_ring.hpp"
 
 namespace orderbook {
 namespace {
@@ -116,6 +121,52 @@ void BM_Engine(benchmark::State& state) { BM_EngineOf<Book>(state); }
 void BM_MapBook(benchmark::State& state) { BM_EngineOf<MapBook>(state); }
 BENCHMARK(BM_Engine)->Arg(10)->Arg(100)->Arg(200)->Arg(400)->Arg(1'000)->Arg(10'000)->Unit(benchmark::kMillisecond);
 BENCHMARK(BM_MapBook)->Arg(10)->Arg(100)->Arg(200)->Arg(400)->Arg(1'000)->Arg(10'000)->Unit(benchmark::kMillisecond);
+
+// The ring's own cost on one thread: a push and a pop of one value, the ring never full or empty for long.
+template <typename T>
+void BM_SpscRingPushPop(benchmark::State& state) {
+  auto ring = std::make_unique<SpscRing<T, 1024>>();
+  T value{};
+  T out{};
+  for (auto _ : state) {
+    ring->try_push(value);
+    ring->try_pop(out);
+    benchmark::DoNotOptimize(out);
+  }
+  state.SetItemsProcessed(state.iterations());
+}
+BENCHMARK(BM_SpscRingPushPop<std::uint64_t>);
+BENCHMARK(BM_SpscRingPushPop<Request>);
+
+// Two threads: this one pushes 2^20 values through a ring of 1,024 while another pops them, spinning when the ring is
+// full or empty. Wall time, since the work is on two threads; the threads aren't pinned (macOS can't).
+template <typename T>
+void BM_SpscRingTwoThreads(benchmark::State& state) {
+  constexpr std::size_t kValues = std::size_t{1} << 20;
+  auto ring = std::make_unique<SpscRing<T, 1024>>();
+  for (auto _ : state) {
+    std::thread consumer([&ring] {
+      T out{};
+      for (std::size_t got = 0; got < kValues;) {
+        if (ring->try_pop(out)) {
+          ++got;
+        } else {
+          cpu_relax();
+        }
+      }
+      benchmark::DoNotOptimize(out);
+    });
+    const T value{};
+    for (std::size_t i = 0; i < kValues; ++i) {
+      while (!ring->try_push(value)) cpu_relax();
+    }
+    consumer.join();
+  }
+  state.SetItemsProcessed(state.iterations() * static_cast<benchmark::IterationCount>(kValues));
+}
+BENCHMARK(BM_SpscRingTwoThreads<std::uint64_t>)->UseRealTime()->Unit(benchmark::kMillisecond);
+BENCHMARK(BM_SpscRingTwoThreads<Request>)->UseRealTime()->Unit(benchmark::kMillisecond);
+
 
 }  // namespace
 }  // namespace orderbook
