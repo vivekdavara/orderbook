@@ -33,6 +33,14 @@ std::atomic<long> allocations_before_failure{-1};
 
 }  // namespace
 
+// GCC (14 and 15) inlines these into callers and then reports the replacement operator delete's std::free as freeing
+// "a pointer returned from a mismatched allocation function" (-Wmismatched-new-delete): it pairs a new-expression with
+// free, not knowing that this operator new is malloc underneath. They are matched here by construction.
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wmismatched-new-delete"
+#endif
+
 void* operator new(std::size_t size) {
   if (counting.load(std::memory_order_relaxed)) allocations.fetch_add(1, std::memory_order_relaxed);
   const long left = allocations_before_failure.load(std::memory_order_relaxed);
@@ -48,6 +56,10 @@ void operator delete(void* memory) noexcept { std::free(memory); }
 void operator delete[](void* memory) noexcept { std::free(memory); }
 void operator delete(void* memory, std::size_t) noexcept { std::free(memory); }
 void operator delete[](void* memory, std::size_t) noexcept { std::free(memory); }
+
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic pop
+#endif
 
 namespace orderbook {
 namespace {
