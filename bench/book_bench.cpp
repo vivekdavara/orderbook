@@ -164,8 +164,18 @@ void BM_SpscRingTwoThreads(benchmark::State& state) {
   }
   state.SetItemsProcessed(state.iterations() * static_cast<benchmark::IterationCount>(kValues));
 }
+// Values of a given size, to see how the two-thread rate depends on how many slots share a cache line.
+template <std::size_t Bytes>
+struct Payload {
+  std::uint64_t words[Bytes / 8] = {};
+};
+
 BENCHMARK(BM_SpscRingTwoThreads<std::uint64_t>)->UseRealTime()->Unit(benchmark::kMillisecond);
+BENCHMARK(BM_SpscRingTwoThreads<Payload<16>>)->UseRealTime()->Unit(benchmark::kMillisecond);
+BENCHMARK(BM_SpscRingTwoThreads<Payload<32>>)->UseRealTime()->Unit(benchmark::kMillisecond);
 BENCHMARK(BM_SpscRingTwoThreads<Request>)->UseRealTime()->Unit(benchmark::kMillisecond);
+BENCHMARK(BM_SpscRingTwoThreads<Payload<64>>)->UseRealTime()->Unit(benchmark::kMillisecond);
+BENCHMARK(BM_SpscRingTwoThreads<Payload<128>>)->UseRealTime()->Unit(benchmark::kMillisecond);
 
 
 }  // namespace
