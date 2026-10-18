@@ -20,9 +20,10 @@ namespace {
 
 using Lines = std::vector<std::string>;
 
-static_assert(!std::is_copy_constructible_v<Book> && !std::is_copy_assignable_v<Book>,
-              "a copy's index would point into the original");
-static_assert(std::is_move_constructible_v<Book> && std::is_move_assignable_v<Book>);
+// Day 2's book was move-only, since its index held iterators into its own containers. Day 3's links nodes by index
+// into its own pool, so a member-wise copy is a book of its own.
+static_assert(std::is_copy_constructible_v<Book> && std::is_copy_assignable_v<Book>);
+static_assert(std::is_nothrow_move_constructible_v<Book> && std::is_nothrow_move_assignable_v<Book>);
 
 Lines run(Book& book, std::string_view line) {
   std::string error;
