@@ -266,6 +266,99 @@ review, every file the harness writes also ends with checks of the expected book
 broken book fails it whichever part differed. Before, a difference in the best price, the number resting, the last
 accepted id or a queue's order shrank to a file whose events and depth were right, which the broken book passed.
 
+## Results (day 3)
+
+All on an Apple M3 (4 performance and 4 efficiency cores, 128-byte cache lines), macOS 26.6.2, Apple Clang 21 at -O3,
+from the release build at `2e54e0d`, **on battery** (45% to 44%, Low Power Mode off) with the desktop apps open, load
+average 2.8 to 6.8 (a review agent's builds had just stopped). Synthetic commands from `RandomFlow` (seed 42, the
+default mix), as on day 2: a warm-up fills a book to its size, then the same 10,000 commands are timed against it.
+
+**Throughput**, `make bench` (Google Benchmark, 5 repetitions, medians; 11:07 to 11:09), commands (new orders and
+cancels) per second. Day 3's engine is built with room for every book here; day 2's is `MapBook`, in the same run:
+
+| Resting at the start | Reference model | Day 2's engine | Engine | Engine per command | Engine ÷ day 2 | Engine ÷ reference |
+|---|---|---|---|---|---|---|
+| 7 | 86.2 M/s | 20.3 M/s | 91.8 M/s | 10.9 ns | 4.5 | 1.07 |
+| 70 | 22.6 M/s | 21.0 M/s | 82.4 M/s | 12.1 ns | 3.9 | 3.6 |
+| 108 | 11.7 M/s * | 22.3 M/s | 86.5 M/s | 11.6 ns | 3.9 | 7.4 |
+| 240 | 8.66 M/s | 23.6 M/s | 92.2 M/s | 10.9 ns | 3.9 | 10.6 |
+| 583 | 4.30 M/s | 23.4 M/s | 88.1 M/s | 11.4 ns | 3.8 | 20 |
+| 5,410 | 467 k/s * | 19.2 M/s | 57.9 M/s | 17.3 ns | 3.0 | 124 |
+
+\* Coefficients of variation (of time) were 4.4% at most, except the engine at 7 (8.6%) and the reference model at
+108 and 5,410 (22.6% and 34.3%; 13.5% and 16.9% in throughput): those two rows are rough, and day 2's on-power
+figures for the reference model (15.8 M/s and 525 k/s) are likely the better ones.
+
+Day 3's engine is 3.8 to 4.5 times day 2's from 7 to 583 resting orders, and 3.0 times at 5,410; it is no longer
+slower than the reference model's vector scan on a small book (1.07 times at 7 orders, where day 2's was 0.24). It is
+flat at 11 to 12 ns a command up to 583 orders, and 17 ns at 5,410: likely the cache, not measured; there the pool
+holds some 5,500 nodes of 40 bytes (220 KB) and the index, built for the benchmark's room of 32,768 orders, is 65,536
+slots of 16 bytes (1 MB), against a performance core's 128 KB L1 data cache. Day 2's figures in this run are within
+2.5% of its own on-power run (below).
+
+**The ring**, in the same run: a push and a pop on one thread cost 2.16 ns for a `uint64_t` and 2.53 ns for a
+`Request` (48 bytes); two threads (2^20 values through a ring of 1,024, wall time) moved 36.5 M `uint64_t` a second
+and 374 M `Request`s a second. That the small values are ten times slower across threads is measured (CV under 0.6%)
+but not explained; a guess, not checked: with 16 `uint64_t` slots a cache line against under 3 `Request`s, a consumer
+running right behind the producer pulls the line it is writing on almost every value.
+
+**Latency**, `make latency` (`build/release/bench/orderbook_latency 1000000`, 11:09:31 to 11:09:38): 1,000,000
+commands each, after the same warm-ups. The clock (`steady_clock`) steps in 41 to 42 ns and costs 13.5 ns a read, so
+below about 125 ns the figures are counts of steps: "41" means the command finished within one step.
+
+One thread, each command timed alone, nanoseconds:
+
+| Book | Resting | p50 | p90 | p99 | p99.9 | p99.99 | max |
+|---|---|---|---|---|---|---|---|
+| Reference model | 70 | 42 | 84 | 209 | 416 | 1,041 | 37,917 |
+| Day 2's engine | 70 | 42 | 84 | 167 | 250 | 833 | 24,541 |
+| Engine | 70 | 41 | 42 | 42 | 125 | 208 | 10,417 |
+| Reference model | 583 | 208 | 375 | 833 | 1,208 | 1,792 | 36,625 |
+| Day 2's engine | 583 | 42 | 84 | 167 | 250 | 875 | 33,292 |
+| Engine | 583 | 41 | 42 | 42 | 84 | 167 | 7,625 |
+| Reference model | 5,410 | 1,375 | 2,542 | 5,542 | 8,583 | 16,541 | 790,625 |
+| Day 2's engine | 5,410 | 42 | 84 | 167 | 292 | 958 | 31,083 |
+| Engine | 5,410 | 41 | 42 | 83 | 125 | 209 | 15,583 |
+
+The engine's p99.99 is 167 to 209 ns at every size, against 833 to 958 ns for day 2's (whose allocations show in its
+tail). The maxima, 7.6 to 15.6 µs for the engine, are single stalls in a million commands on an unpinned thread (an
+interrupt, say, or the thread moved; not traced).
+
+The engine on its own thread, from sending a command to receiving its last event, nanoseconds:
+
+| Mode | Resting | p50 | p90 | p99 | p99.9 | p99.99 | max |
+|---|---|---|---|---|---|---|---|
+| One at a time | 66 | 167 | 209 | 459 | 667 | 6,750 | 234,917 |
+| Paced, 1 M/s | 66 | 208 | 250 | 3,167 | 29,542 | 50,250 | 76,583 |
+| Paced, 5 M/s | 66 | 192 | 242 | 317 | 31,742 | 63,350 | 81,392 |
+| Saturated: 13.47 M/s | 66 | 333 | 417 | 7,708 | 74,917 | 88,541 | 90,375 |
+| One at a time | 562 | 166 | 167 | 250 | 292 | 3,583 | 50,583 |
+| Paced, 1 M/s | 562 | 208 | 250 | 333 | 26,083 | 50,000 | 70,625 |
+| Paced, 5 M/s | 562 | 183 | 242 | 308 | 33,792 | 57,983 | 75,208 |
+| Saturated: 13.30 M/s | 562 | 333 | 416 | 44,959 | 126,000 | 137,291 | 138,917 |
+| One at a time | 4,796 | 167 | 208 | 250 | 292 | 2,083 | 55,292 |
+| Paced, 1 M/s | 4,796 | 208 | 250 | 333 | 25,875 | 49,375 | 87,166 |
+| Paced, 5 M/s | 4,796 | 183 | 241 | 316 | 35,416 | 78,525 | 93,816 |
+| Saturated: 13.77 M/s | 4,796 | 333 | 375 | 11,417 | 65,042 | 72,250 | 74,042 |
+
+A round trip through both rings, one command at a time, is 166 to 167 ns at the median and 250 to 459 ns at p99: a
+few cache-line handoffs between the two cores each way, and the command itself. Paced at 1 M or 5 M commands a second, the
+median is 183 to 208 ns and p99 about 0.3 µs (3.2 µs in one run), but p99.9 is 26 to 35 µs at every size, where one at
+a time it is 0.3 to 0.7 µs. That tail isn't explained yet: both threads spin between commands, and a guess, not
+checked, is the scheduler moving or pausing one of them, which an unpinned thread on macOS can't prevent. The
+saturated runs top out at 13.3 to 13.8 M commands a second, a fifth or less of the engine's own rate: the sender,
+which reads the clock twice a command and drains every report, is the bottleneck here, and the tails there are
+queueing. The
+gateway (day 4) will be measured the same way.
+
+**Tried and measured, not kept: finding a level by walking from the top.** Most activity is near the top of the book, so
+a walk from the back of the level vector might beat the binary search. `BM_Engine` (5 repetitions, medians), binary
+search, then the walk, then binary search again (11:10 to 11:12; the first binary run was disturbed, its 108 and 240
+rows at 57 and 44 M/s): at 7, 70, 108, 240, 583 and 5,410 resting orders the walk did 103.7, 88.5, 85.7, 78.1, 68.3 and
+43.6 M/s, the second binary run 102.4, 79.7, 86.4, 88.0, 89.4 and 56.5 M/s. The walk was no better on small books (11%
+faster at 70, within the noise seen there) and slower from 240 orders on: 11% at 240, 24% at 583, 23% at 5,410, where
+cancels hit levels deep in the book. Binary search stays. (Every test passed on the walk too.)
+
 ## Results (day 2)
 
 Both books on the same work, measured with `make bench` at `b0e54b2` (Google Benchmark, 5 repetitions, medians) on an
