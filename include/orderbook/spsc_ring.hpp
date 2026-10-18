@@ -1,6 +1,6 @@
 #pragma once
 
-// A bounded, lock-free, single-producer single-consumer queue (DESIGN.md, "Threads"): the channel between the
+// A bounded, lock-free, single-producer single-consumer queue (DESIGN.md, "Threads (day 3)"): the channel between the
 // gateway's thread and the engine's. Exactly one thread pushes and exactly one pops; neither ever waits for the other
 // inside the queue, and nothing in it allocates after construction.
 //

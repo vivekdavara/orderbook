@@ -1,14 +1,17 @@
 #pragma once
 
-// The engine on a thread of its own (DESIGN.md, "Threads"): the shape day 4's gateway drives. Commands arrive through
+// The engine on a thread of its own (DESIGN.md, "Threads (day 3)"): the shape day 4's gateway drives. Commands arrive through
 // one SPSC ring and the events go back through another, so the book needs no lock, and the engine's thread waits on
 // nothing but an empty ring of requests or a full ring of reports. It spins while it waits (a core of its own, as a
 // low-latency engine runs), pausing the core between looks.
 //
-// One sending thread uses `try_send` and `try_receive`; it must keep receiving while it waits to send, or both
-// threads can end up waiting on a full ring each.
+// One sending thread uses `try_send`, `try_receive` and `stop`; it must keep receiving while it waits to send, or both
+// threads can end up waiting on a full ring each. If applying a command throws (the book growing past its room and
+// an allocation failing), the exception leaves the engine's thread and the process terminates: an engine that can't
+// say what it did shouldn't go on matching.
 
 #include <atomic>
+#include <cassert>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -61,12 +64,17 @@ class EngineThread {
   bool try_receive(Report& report) { return reports_->try_pop(report); }
 
   // Lets the engine apply everything already sent, then waits for its thread to end. If the ring of reports fills up
-  // meanwhile, the engine stops there instead: the caller has stopped receiving, so it drops the rest. Receive every
-  // report you want before stopping. Idempotent.
+  // meanwhile, the engine stops there instead, possibly partway through a command's reports: the caller has stopped
+  // receiving, so it drops the rest (and `applied()` says how far it got). Receive every report you want before
+  // stopping. Called by the sending thread (that is what orders its last send before the stop); calling it again does
+  // nothing, but not from two threads at once.
   void stop();
 
   // The book. Only once stopped: until then the engine's thread owns it.
-  const Book& book() const { return book_; }
+  const Book& book() const {
+    assert(!thread_.joinable() && "the engine's thread owns the book until stop()");
+    return book_;
+  }
   // Commands applied so far, as the engine's thread last counted. A count to watch, not a way to read the book: it
   // orders nothing (relaxed), and the book is only readable once stopped.
   std::uint64_t applied() const { return applied_.load(std::memory_order_relaxed); }

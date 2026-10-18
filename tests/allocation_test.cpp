@@ -11,12 +11,16 @@
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <new>
+#include <variant>
+#include <string>
 #include <vector>
 
 #include "orderbook/book.hpp"
+#include "orderbook/check.hpp"
 #include "orderbook/map_book.hpp"
 #include "orderbook/random_flow.hpp"
 
@@ -24,11 +28,18 @@ namespace {
 
 std::atomic<bool> counting{false};
 std::atomic<std::size_t> allocations{0};
+// How many allocations to let through before one fails with bad_alloc (once); -1 for none. One thread uses it.
+std::atomic<long> allocations_before_failure{-1};
 
 }  // namespace
 
 void* operator new(std::size_t size) {
   if (counting.load(std::memory_order_relaxed)) allocations.fetch_add(1, std::memory_order_relaxed);
+  const long left = allocations_before_failure.load(std::memory_order_relaxed);
+  if (left >= 0) {
+    allocations_before_failure.store(left - 1, std::memory_order_relaxed);
+    if (left == 0) throw std::bad_alloc();
+  }
   if (void* memory = std::malloc(size == 0 ? 1 : size)) return memory;
   throw std::bad_alloc();
 }
@@ -123,8 +134,8 @@ TEST(Allocation, Day2sEngineAllocatesForEveryOrderThatRests) {
 }
 
 TEST(Allocation, PastItsRoomTheEngineAllocatesOnlyAtNewHighWaterMarks) {
-  // The default room (4,096 orders, 1,024 levels a side), on a stream that grows the book past it: the pool and the
-  // index double a few times, and nothing else allocates. Then the same stream again, on a book built with room for the
+  // The default room (4,096 orders, 1,024 levels a side), on a stream that grows the book past it: the pool, the index
+  // and each side's levels grow, once each here, and nothing else allocates. Then the same stream again, on a book built with room for the
   // high-water mark the first reached, makes no allocation at all.
   const std::vector<Command> commands =
       stream(5, FlowOptions{.price_range = 3'000, .target_resting = 12'000}, 100'000);
@@ -138,6 +149,76 @@ TEST(Allocation, PastItsRoomTheEngineAllocatesOnlyAtNewHighWaterMarks) {
 
   Book fresh(BookCapacity{.orders = book.pool_nodes(), .levels = 8'000});
   EXPECT_EQ(allocations_applying(fresh, commands), 0U);
+}
+
+TEST(Allocation, ACopyKeepsTheRoomItsOriginalWasBuiltWith) {
+  // A vector's copy has room only for what it holds; a book's copy gets the room its original had.
+  const std::vector<Command> commands = stream(6, FlowOptions{.price_range = 2'000, .target_resting = 5'000}, 200'000);
+  const Book empty(BookCapacity{.orders = 20'000, .levels = 8'000});
+  Book copy = empty;
+  EXPECT_EQ(allocations_applying(copy, commands), 0U) << "a copy of an empty book with room";
+
+  Book used(BookCapacity{.orders = 20'000, .levels = 8'000});
+  const std::vector<Command> first(commands.begin(), commands.begin() + 100'000);
+  const std::vector<Command> second(commands.begin() + 100'000, commands.end());
+  allocations_applying(used, first);
+  Book assigned;
+  assigned = used;
+  EXPECT_EQ(allocations_applying(assigned, second), 0U) << "a copy assigned from a book in use";
+}
+
+// The book stays well-formed whatever allocation fails: its own (the pool, a side's levels, the index growing past
+// the room) or the caller's events vector growing. Each command of a random stream is applied to a copy of the book,
+// failing its first allocation, then its second, and so on until it goes through. After each failure the copy must be
+// well-formed (check_book), hold as many orders as its index says, find every one of them for a cancel, and its events
+// must be the start of what the command gives when nothing fails.
+TEST(Allocation, AFailedAllocationLeavesAWellFormedBook) {
+  const std::vector<Command> commands = stream(7, FlowOptions{.price_range = 20, .target_resting = 60}, 3'000);
+  Book book(BookCapacity{.orders = 1, .levels = 1});  // so the pool, the levels and the index all grow
+  std::size_t failures = 0;
+  for (std::size_t i = 0; i < commands.size(); ++i) {
+    std::vector<Event> expected;
+    {
+      Book copy = book;
+      copy.apply(commands[i], expected);
+    }
+    for (long fail_at = 0;; ++fail_at) {
+      Book copy = book;
+      std::vector<Event> events;  // empty, so its growth can fail too
+      allocations_before_failure.store(fail_at);
+      bool threw = false;
+      try {
+        copy.apply(commands[i], events);
+      } catch (const std::bad_alloc&) {
+        threw = true;
+      }
+      allocations_before_failure.store(-1);
+      if (!threw) break;
+      ++failures;
+      const std::string where = "command " + std::to_string(i) + ", allocation " + std::to_string(fail_at);
+      ASSERT_LE(events.size(), expected.size()) << where;
+      ASSERT_TRUE(std::equal(events.begin(), events.end(), expected.begin())) << where;
+      ASSERT_TRUE(check_book(copy).empty()) << where << ": " << check_book(copy).front();
+      // An order counts as accepted only once its acceptance is reported.
+      const bool accepted = !events.empty() && std::holds_alternative<Accepted>(events.front());
+      ASSERT_EQ(copy.last_accepted_id(), accepted ? std::get<Accepted>(events.front()).id : book.last_accepted_id())
+          << where;
+      std::vector<RestingOrder> resting = copy.orders(Side::Buy);
+      for (const RestingOrder& order : copy.orders(Side::Sell)) resting.push_back(order);
+      ASSERT_EQ(copy.size(), resting.size()) << where;
+      for (const RestingOrder& order : resting) {
+        std::vector<Event> cancelled;
+        copy.apply(CancelOrder{order.id}, cancelled);
+        ASSERT_EQ(cancelled.size(), 1U) << where;
+        ASSERT_TRUE(std::holds_alternative<Cancelled>(cancelled.front())) << where << ": order " << order.id.value;
+      }
+      ASSERT_EQ(copy.size(), 0U) << where;
+    }
+    std::vector<Event> events;
+    book.apply(commands[i], events);
+  }
+  EXPECT_GT(failures, 3'000U) << "every command failed at least at its first event";
+  std::printf("%zu commands, %zu failed allocations\n", commands.size(), failures);
 }
 
 }  // namespace

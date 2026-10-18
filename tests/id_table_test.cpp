@@ -45,9 +45,12 @@ TEST(IdTable, FindsWhatWasInsertedAndNothingElse) {
   EXPECT_EQ(table.find(2), 20U);
   EXPECT_EQ(table.find(1'000'000'007), 30U);
   EXPECT_EQ(table.find(3), kNoNode);
-  // Id 0 marks an empty slot, so it is never found, even in a table of empty slots.
+  // Id 0 marks an empty slot, so it is never found, even in a table of empty slots, and taking it changes nothing
+  // (without its guard, take(0) stopped at the first empty slot, called it id 0's, and counted one id fewer).
   EXPECT_EQ(table.find(0), kNoNode);
   EXPECT_EQ(table.take(0), kNoNode);
+  EXPECT_EQ(table.size(), 3U);
+  EXPECT_EQ(table.find(1'000'000'007), 30U);
 }
 
 TEST(IdTable, TakeRemovesAndReturnsTheNode) {
@@ -163,8 +166,8 @@ TEST(IdTable, MatchesAMapOnRandomOperationsInLargerTables) {
   random_operations(102, 500, 20'000);
 }
 
-// The engine's own pattern: ids from a random stream of orders, inserted as they rest and taken as they fill or are
-// cancelled, with the table growing from nothing.
+// Growth from nothing while ids come and go: every seventh id inserted, and every third insert taking an older one
+// out, as orders rest and leave, with the table doubling under clusters it already has.
 TEST(IdTable, GrowsFromNothingWithEveryIdKept) {
   IdTable table;
   std::unordered_map<std::uint64_t, NodeIndex> model;

@@ -41,14 +41,18 @@ class Book {
   Book() : Book(BookCapacity{}) {}
   explicit Book(BookCapacity capacity);
   // Copyable and movable member by member: nodes are linked by index into the book's own pool, so a copy is a book
-  // of its own and a move keeps every link. A moved-from book is empty, with no room made, and can be used again.
-  Book(const Book&) = default;
-  Book& operator=(const Book&) = default;
+  // of its own and a move keeps every link. A copy has the room its original has (a plain vector copy would have room
+  // only for what it holds). A moved-from book is empty, with no room made, and can be used again.
+  Book(const Book& other);
+  Book& operator=(const Book& other);
   Book(Book&& other) noexcept;
   Book& operator=(Book&& other) noexcept;
   ~Book() = default;
 
-  // Applies one command and appends the events it produces to `events`.
+  // Applies one command and appends the events it produces to `events`. If an allocation fails (the book growing
+  // past its room, or `events` growing), it throws std::bad_alloc with the book still well-formed, and the events
+  // appended so far are exactly what the command did to it: a rejection or a cancel changed nothing unless its event
+  // is there, and an order whose remainder was to rest did trade as its trade events say, and doesn't rest.
   void apply(const Command& command, std::vector<Event>& events);
 
   // The best resting price on a side (the highest bid or the lowest ask), if the side has any orders. O(1).
@@ -61,7 +65,7 @@ class Book {
   std::size_t size() const { return index_.size(); }
   // The highest id accepted so far (0 before any): a new order's id must be greater.
   OrderId last_accepted_id() const { return last_accepted_; }
-  // Nodes the pool has made: the most orders that have rested at once (or the room made, if more). For the tests.
+  // Nodes the pool has made: the most orders that have rested at once. For the tests.
   std::size_t pool_nodes() const { return nodes_.size(); }
 
  private:

@@ -148,6 +148,7 @@ TYPED_TEST(Books, ARejectedCommandChangesNothing) {
     EXPECT_EQ(book.orders(Side::Buy), bids) << line;
     EXPECT_EQ(book.orders(Side::Sell), asks) << line;
     EXPECT_EQ(book.last_accepted_id(), OrderId{3}) << line;
+    EXPECT_EQ(book.size(), 3U) << line;
   }
   // So the order can be sent again with the same id once it is fixed.
   EXPECT_EQ(run(book, "new 4 buy ioc 1 @ 103"), (Lines{"accepted 4", "trade 4 2 1 @ 102"}));

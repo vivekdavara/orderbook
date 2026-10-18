@@ -110,8 +110,9 @@ Day 3's engine (`Book`; DESIGN.md "The engine" has the details and the alternati
 | Best price | O(1): the back of the side's vector |
 | Depth | O(L): one entry per level, from its kept total |
 
-`Book` is copyable and movable member by member (links are indices into its own pool); a moved-from book is empty and
-usable. Day 2's engine (`std::map` of `std::list` levels, an `std::unordered_map` index) is `MapBook` in the test kit:
+`Book` is copyable and movable member by member (links are indices into its own pool), and a copy keeps its
+original's room; a moved-from book is empty and usable. If an allocation fails past the room, `apply` throws with the
+book well-formed and the events so far saying exactly what the command did. Day 2's engine (`std::map` of `std::list` levels, an `std::unordered_map` index) is `MapBook` in the test kit:
 the baseline in every benchmark, and a third book every rule test and scenario file runs on.
 
 ### The engine's thread
@@ -359,7 +360,7 @@ branches. At `a900bb9`, 741 of 751 and 469 of 482; the second review found that 
 | `books_test.cpp` | Every book (a typed suite: the reference model, the engine, day 2's engine): their queries, the order of the validation checks, a rejection changing nothing, which orders can be cancelled, a sweep through levels |
 | `book_test.cpp` | The engine's structure: levels that empty leave the book, a level's total, cancels from the front, middle and back of a queue, a partly filled maker keeps its place, a sweep through 1,000 levels, a moved book's index (under ASan too); day 3: the pool reuses the nodes orders leave, a book built with room for 4 orders takes 2,000 on 500 levels a side, a copy is a book of its own, a moved-from book is empty and works again |
 | `id_table_test.cpp` | The id table against `std::unordered_map` on random inserts and takes (every stored id looked up after every removal), in a 16-slot table where clusters wrap past the end (20 seeds) and in larger ones; growth by doubling at half full; moves and copies |
-| `allocation_test.cpp` (own binary) | Counts calls to `operator new` while a book applies 200,000 random commands: 0 for the engine with room, in four mixes; 169,627 to 211,721 for day 2's engine, the control; 4 past its room, as the pool, index and levels grow once |
+| `allocation_test.cpp` (own binary) | Counts calls to `operator new` while a book applies 200,000 random commands: 0 for the engine with room, in four mixes; 169,627 to 211,721 for day 2's engine, the control; 4 past its room, as the pool, index and levels grow once; 0 for a copy of a book with room. And fails each allocation of each command of a random stream in turn (3,917 failures over 3,000 commands): the book stays well-formed, every resting order can be cancelled, and the events so far are the start of the command's events |
 | `spsc_ring_test.cpp` | Full and empty, order over thousands of laps; two threads passing 300,000 and 1,000,000 values through rings of 4 and 1,024, as integers (for ThreadSanitizer) and as 64-byte structs whose fields must agree |
 | `engine_thread_test.cpp` | 100,000 random commands in three mixes through the engine's thread give exactly the events and final state of the book called directly; stopping applies everything sent; stopping returns when the engine waits on a full ring of reports; destroying a running engine joins it |
 | `scenario_test.cpp` + `scenarios/*.txt` | Fifteen hand-written scripts, one or more per rule (the fifteenth pins queue order with state checks), on all three books; the parser's and runner's error reports, with line numbers, for depth and state checks |
@@ -511,9 +512,10 @@ that accepted trailing words (`7681692` and the commit after it).
 - The reference model is O(n) per fill and cancel by design; it is not the engine.
 - Day 2's engine (`MapBook`) allocates on the hot path and is slower than the reference model on books of fewer than
   about a hundred orders; it stays only as a baseline.
-- Not exception-safe: if the engine has to grow past its room and the allocation fails partway through a command (a
-  `bad_alloc` in `rest`), the book can be left with an empty level or an order the index doesn't know. Within its
-  room it allocates nothing, so this can't happen there. The pool also stops at 2^32 - 1 nodes (`std::length_error`).
+- A command whose allocation fails (only possible past the book's room) is cut short: the book stays well-formed and
+  the events appended so far say exactly what it did, but an order whose remainder was to rest neither rests nor gets
+  a `cancelled` event, so that order's quantities don't add up (I4). On the engine's thread the exception ends the
+  process. The pool stops at 2^32 - 1 nodes (`std::length_error`).
 - A level inserted or erased deep in the book moves every level above it (O(levels)): a book with thousands of levels
   that come and go far from the top would pay that on each.
 - The engine's thread spins: it takes a core whether or not commands arrive. The two threads aren't pinned to cores

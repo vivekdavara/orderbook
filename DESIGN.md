@@ -232,11 +232,18 @@ runs and the rules run on both.
     Events still go to the caller's `std::vector<Event>`, which allocates only while it grows; a caller that reuses
     one (the engine's thread does) allocates nothing once it is as long as the longest answer so far.
   - **Copies and moves.** Copyable member by member (day 2's could only move: its index held iterators into its own
-    containers). The moves are written out so that a moved-from book is empty and can be used again: a defaulted move
-    would leave the free list's head pointing into a pool that went with the move.
-  - **Limits.** 2^32 - 1 nodes (the index type), checked: the pool throws `std::length_error` past it, as an
-    allocation failure would throw `std::bad_alloc`; either leaves that command's events and book in an unspecified
-    state (a limitation since day 2).
+    containers), and a copy gets its original's room (a plain vector copy has room only for what it holds, so a copy
+    of a book built with room allocated again: 36 times on 200,000 commands, found from the day-3 review). The moves
+    are written out so that a moved-from book is empty and can be used again: a defaulted move would leave the free
+    list's head pointing into a pool that went with the move.
+  - **When an allocation fails.** Past its room the book allocates, and an allocation can fail (`std::bad_alloc`; or
+    `std::length_error` past 2^32 - 1 nodes, the index type's limit). Every event is appended before the change it
+    reports, and `rest` makes its node, its level and its index entry, undoing each if a later one throws, before it
+    links anything. So if `apply` throws, the book is well-formed and the events appended so far are exactly what the
+    command did: an order whose remainder was to rest traded as its trade events say and doesn't rest. Day 2's engine
+    could be left with an empty level or an order its index didn't know. `tests/allocation_test.cpp` fails every
+    allocation of every command of a random stream in turn (3,917 failures over 3,000 commands) and checks the book
+    after each.
 What each operation costs, day 3:
 
 | Operation | Cost |

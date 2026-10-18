@@ -23,6 +23,25 @@ Book::Book(BookCapacity capacity) : index_(capacity.orders) {
   asks_.reserve(capacity.levels);
 }
 
+Book::Book(const Book& other)
+    : free_(other.free_), index_(other.index_), last_accepted_(other.last_accepted_) {
+  // Room first, then the contents: assigning into a vector with room keeps it.
+  nodes_.reserve(other.nodes_.capacity());
+  bids_.reserve(other.bids_.capacity());
+  asks_.reserve(other.asks_.capacity());
+  nodes_ = other.nodes_;
+  bids_ = other.bids_;
+  asks_ = other.asks_;
+}
+
+Book& Book::operator=(const Book& other) {
+  if (this != &other) {
+    Book copy(other);
+    *this = std::move(copy);
+  }
+  return *this;
+}
+
 // std::vector's move constructor leaves the source empty; the scalars are reset by hand.
 Book::Book(Book&& other) noexcept
     : nodes_(std::move(other.nodes_)),
@@ -65,13 +84,14 @@ std::optional<RejectReason> Book::validate(const NewOrder& order) const {
   return std::nullopt;
 }
 
+// Each event is appended before the change it reports, so if appending throws, the book is as the events so far say.
 void Book::new_order(const NewOrder& order, std::vector<Event>& events) {
   if (const auto reason = validate(order)) {
     events.push_back(Rejected{order.id, *reason});
     return;
   }
-  last_accepted_ = order.id;
   events.push_back(Accepted{order.id});
+  last_accepted_ = order.id;
 
   // Rule 2: the best maker is at the head of the back level, since each side keeps its levels worst first and each
   // queue keeps arrival order. Each pass of the outer loop empties a level, or stops inside it with the taker filled.
@@ -124,14 +144,28 @@ Book::Ladder::iterator Book::find_level(Ladder& levels, Side side, Price price) 
 }
 
 void Book::rest(const NewOrder& order, Quantity remaining) {
-  // The level is made if this is the first order at its price. A taker never rests on a price it could have traded
-  // at, so the order can't cross the other side here.
+  // Everything that can allocate, and so throw, comes first, each undone if a later one throws: a node, the level (made
+  // if this is the first order at its price), the index entry. Then the links, which can't throw. A taker never rests
+  // on a price it could have traded at, so the order can't cross the other side here.
+  const NodeIndex node = allocate();  // may grow the pool, so no reference into it is held across this
   Ladder& levels = ladder(order.side);
   auto level = find_level(levels, order.side, order.price);
-  if (level == levels.end() || level->price != order.price) {
-    level = levels.insert(level, PriceLevel{order.price, Quantity{0}, kNoNode, kNoNode});
+  const bool new_level = level == levels.end() || level->price != order.price;
+  if (new_level) {
+    try {
+      level = levels.insert(level, PriceLevel{order.price, Quantity{0}, kNoNode, kNoNode});
+    } catch (...) {
+      release(node);
+      throw;
+    }
   }
-  const NodeIndex node = allocate();  // may grow the pool, so no reference into it is held across this
+  try {
+    index_.insert(order.id.value, node);  // ids increase, so the id isn't in the index already
+  } catch (...) {
+    release(node);
+    if (new_level) levels.erase(level);
+    throw;
+  }
   nodes_[node] = OrderNode{order.id, remaining, order.price, level->tail, kNoNode, order.side};
   if (level->tail == kNoNode) {
     level->head = node;
@@ -140,18 +174,17 @@ void Book::rest(const NewOrder& order, Quantity remaining) {
   }
   level->tail = node;
   level->total += remaining;
-  // Ids increase, so the id isn't in the index already.
-  index_.insert(order.id.value, node);
 }
 
 void Book::cancel(const CancelOrder& cancel, std::vector<Event>& events) {
-  const NodeIndex node = index_.take(cancel.id.value);
+  const NodeIndex node = index_.find(cancel.id.value);
   if (node == kNoNode) {
     events.push_back(Rejected{cancel.id, RejectReason::UnknownOrder});
     return;
   }
   const OrderNode& order = nodes_[node];
-  events.push_back(Cancelled{cancel.id, order.remaining, CancelReason::Requested});
+  events.push_back(Cancelled{cancel.id, order.remaining, CancelReason::Requested});  // before the order leaves
+  index_.take(cancel.id.value);
   Ladder& levels = ladder(order.side);
   const auto level = find_level(levels, order.side, order.price);  // there: the order rests on it
   level->total -= order.remaining;
