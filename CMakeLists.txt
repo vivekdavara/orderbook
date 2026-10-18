@@ -38,12 +38,13 @@ target_include_directories(orderbook PUBLIC ${PROJECT_SOURCE_DIR}/include)
 target_compile_features(orderbook PUBLIC cxx_std_20)
 orderbook_set_warnings(orderbook)
 
-# What tests, benchmarks and tools use to check a book: the reference model (the oracle), the scenario runner, the
-# random command generator, the invariant checks, the minimizer and the differential harness. Kept out of the
-# engine's library.
+# What tests, benchmarks and tools use to check a book: the reference model (the oracle), day 2's engine (the
+# baseline day 3 is measured against), the scenario runner, the random command generator, the invariant checks, the
+# minimizer and the differential harness. Kept out of the engine's library.
 add_library(orderbook_testkit
   src/check.cpp
   src/differential.cpp
+  src/map_book.cpp
   src/minimize.cpp
   src/random_flow.cpp
   src/reference_book.cpp

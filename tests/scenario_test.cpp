@@ -15,6 +15,7 @@
 #include <vector>
 
 #include "orderbook/book.hpp"
+#include "orderbook/map_book.hpp"
 #include "orderbook/reference_book.hpp"
 
 namespace orderbook {
@@ -43,7 +44,7 @@ std::string read_file(const fs::path& path) {
 
 class ScenarioFile : public ::testing::TestWithParam<std::string> {};
 
-// Every file runs on both books: it is the specification, written from DESIGN.md, so each must pass it.
+// Every file runs on every book: it is the specification, written from DESIGN.md, so each must pass it.
 TEST_P(ScenarioFile, PassesOnTheReferenceModel) {
   std::string error;
   const auto scenario = parse_scenario(read_file(fs::path(ORDERBOOK_SCENARIO_DIR) / GetParam()), &error);
@@ -59,6 +60,15 @@ TEST_P(ScenarioFile, PassesOnTheEngine) {
   ASSERT_TRUE(scenario.has_value()) << GetParam() << " " << error;
   ASSERT_FALSE(scenario->empty()) << GetParam() << " has no commands";
   Book book;
+  EXPECT_EQ(run_scenario(*scenario, book), "") << GetParam();
+}
+
+TEST_P(ScenarioFile, PassesOnDay2sEngine) {
+  std::string error;
+  const auto scenario = parse_scenario(read_file(fs::path(ORDERBOOK_SCENARIO_DIR) / GetParam()), &error);
+  ASSERT_TRUE(scenario.has_value()) << GetParam() << " " << error;
+  ASSERT_FALSE(scenario->empty()) << GetParam() << " has no commands";
+  MapBook book;
   EXPECT_EQ(run_scenario(*scenario, book), "") << GetParam();
 }
 

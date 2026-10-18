@@ -1,4 +1,5 @@
-// The rules, one at a time, on both books: the reference model and the engine must each pass every test here.
+// The rules, one at a time, on every book: the reference model, the engine, and day 2's engine (the baseline) must
+// each pass every test here.
 
 #include <gtest/gtest.h>
 
@@ -7,6 +8,7 @@
 #include <vector>
 
 #include "orderbook/book.hpp"
+#include "orderbook/map_book.hpp"
 #include "orderbook/reference_book.hpp"
 #include "orderbook/text.hpp"
 
@@ -34,11 +36,12 @@ void run_all(AnyBook& book, const std::vector<std::string_view>& lines) {
   for (const std::string_view line : lines) run(book, line);
 }
 
-// CTest names each test after its type: Books.StartsEmpty<orderbook::ReferenceBook>, then <orderbook::Book>.
+// CTest names each test after its type: Books.StartsEmpty<orderbook::ReferenceBook>, then <orderbook::Book>, then
+// <orderbook::MapBook>.
 template <typename AnyBook>
 class Books : public ::testing::Test {};
 
-using Implementations = ::testing::Types<ReferenceBook, Book>;
+using Implementations = ::testing::Types<ReferenceBook, Book, MapBook>;
 TYPED_TEST_SUITE(Books, Implementations);
 
 TYPED_TEST(Books, StartsEmpty) {
