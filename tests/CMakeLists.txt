@@ -25,6 +25,16 @@ target_compile_definitions(orderbook_tests PRIVATE ORDERBOOK_SCENARIO_DIR="${CMA
 # Each TEST becomes its own CTest test, so a failure is named in ctest's summary.
 gtest_discover_tests(orderbook_tests DISCOVERY_TIMEOUT 30)
 
+# The engine's promise that matching allocates nothing once the book has room, counted by replacing the global
+# operator new: its own executable, since the replacement is process-wide, and not under the sanitizers, which replace
+# operator new themselves.
+if(NOT ORDERBOOK_SANITIZE)
+  add_executable(orderbook_allocation_tests allocation_test.cpp)
+  target_link_libraries(orderbook_allocation_tests PRIVATE orderbook::testkit GTest::gtest_main)
+  orderbook_set_warnings(orderbook_allocation_tests)
+  gtest_discover_tests(orderbook_allocation_tests DISCOVERY_TIMEOUT 30)
+endif()
+
 # The command-line tool, end to end. Without --book it runs the engine.
 file(GLOB scenario_files CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/scenarios/*.txt)
 add_test(NAME cli.check_passes_every_scenario COMMAND orderbook_cli check ${scenario_files})
