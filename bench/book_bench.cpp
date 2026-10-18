@@ -139,18 +139,24 @@ BENCHMARK(BM_SpscRingPushPop<std::uint64_t>);
 BENCHMARK(BM_SpscRingPushPop<Request>);
 
 // Two threads: this one pushes 2^20 values through a ring of 1,024 while another pops them, spinning when the ring is
-// full or empty. Wall time, since the work is on two threads; the threads aren't pinned (macOS can't).
+// full or empty. Wall time, since the work is on two threads; the threads aren't pinned (macOS can't). The counters
+// say how often, per value, the consumer found the ring empty and the producer found it full: which thread was
+// waiting for the other.
 template <typename T>
 void BM_SpscRingTwoThreads(benchmark::State& state) {
   constexpr std::size_t kValues = std::size_t{1} << 20;
   auto ring = std::make_unique<SpscRing<T, 1024>>();
+  std::size_t empty = 0;
+  std::size_t full = 0;
   for (auto _ : state) {
-    std::thread consumer([&ring] {
+    std::size_t found_empty = 0;
+    std::thread consumer([&ring, &found_empty] {
       T out{};
       for (std::size_t got = 0; got < kValues;) {
         if (ring->try_pop(out)) {
           ++got;
         } else {
+          ++found_empty;
           cpu_relax();
         }
       }
@@ -158,11 +164,18 @@ void BM_SpscRingTwoThreads(benchmark::State& state) {
     });
     const T value{};
     for (std::size_t i = 0; i < kValues; ++i) {
-      while (!ring->try_push(value)) cpu_relax();
+      while (!ring->try_push(value)) {
+        ++full;
+        cpu_relax();
+      }
     }
     consumer.join();
+    empty += found_empty;
   }
+  const auto values = static_cast<double>(state.iterations()) * static_cast<double>(kValues);
   state.SetItemsProcessed(state.iterations() * static_cast<benchmark::IterationCount>(kValues));
+  state.counters["empty_per_value"] = static_cast<double>(empty) / values;
+  state.counters["full_per_value"] = static_cast<double>(full) / values;
 }
 // Values of a given size, to see how the two-thread rate depends on how many slots share a cache line.
 template <std::size_t Bytes>
