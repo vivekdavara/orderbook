@@ -250,5 +250,17 @@ TEST(Engine, AMovedFromBookIsEmptyAndCanBeUsedAgain) {
   EXPECT_EQ(assigned.last_accepted_id(), OrderId{2});
 }
 
+TEST(Engine, MovingABookIntoItselfChangesNothing) {
+  Book book;
+  run_all(book, {"new 1 buy limit 5 @ 100", "new 2 sell limit 5 @ 102", "cancel 1"});
+  Book& same = book;  // through a reference, as generic code would do it
+  book = std::move(same);
+  EXPECT_EQ(book.size(), 1U);
+  EXPECT_EQ(book.last_accepted_id(), OrderId{2});
+  EXPECT_EQ(format(book.depth(Side::Sell)), "102x5");
+  EXPECT_EQ(run(book, "new 3 buy limit 1 @ 99"), Lines{"accepted 3"});  // takes the free node
+  EXPECT_EQ(book.pool_nodes(), 2U);
+}
+
 }  // namespace
 }  // namespace orderbook

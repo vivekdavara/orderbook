@@ -181,5 +181,14 @@ TEST(IdTable, GrowsFromNothingWithEveryIdKept) {
   for (const auto& [id, node] : model) ASSERT_EQ(table.find(id), node) << id;
 }
 
+TEST(IdTable, MovingATableIntoItselfChangesNothing) {
+  IdTable table(8);
+  table.insert(1, 1);
+  IdTable& same = table;
+  table = std::move(same);
+  EXPECT_EQ(table.size(), 1U);
+  EXPECT_EQ(table.find(1), 1U);
+}
+
 }  // namespace
 }  // namespace orderbook
