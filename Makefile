@@ -1,7 +1,7 @@
 # Thin wrappers over the CMake presets (CMakePresets.json). `make check` is what every commit must pass.
 JOBS ?= $(shell sysctl -n hw.ncpu 2>/dev/null || nproc)
 
-.PHONY: check asan bench soak coverage gcc-check clean
+.PHONY: check asan tsan bench soak coverage gcc-check clean
 
 # Debug build with warnings as errors, then every test.
 check:
@@ -14,6 +14,13 @@ asan:
 	cmake --preset asan >/dev/null
 	cmake --build --preset asan -j $(JOBS)
 	ctest --preset asan -j $(JOBS)
+
+# The tests with threads (the SPSC ring's and the engine thread's) under ThreadSanitizer, which reports two threads'
+# accesses to the same memory with no happens-before between them as a data race. The other tests have one thread.
+tsan:
+	cmake --preset tsan >/dev/null
+	cmake --build --preset tsan -j $(JOBS)
+	ctest --preset tsan -j $(JOBS) -R '^(SpscRing|EngineThread)[.]'
 
 # Optimised build, then every benchmark 5 times; Google Benchmark reports the mean, median, stddev and CV of each.
 # BENCH_ARGS passes more flags, e.g. BENCH_ARGS=--benchmark_filter=ReferenceBook.

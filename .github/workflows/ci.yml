@@ -63,6 +63,23 @@ jobs:
       - name: Build and test under the sanitizers
         run: make asan JOBS=4
 
+  tsan:
+    name: Linux, Clang 18, TSan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      CXX: clang++-18
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install Ninja
+        run: sudo apt-get update -q && sudo apt-get install -y -q ninja-build
+      # The runner's kernel randomises mmap addresses with 32 bits, more than Clang 18's ThreadSanitizer can lay its
+      # shadow memory around ("FATAL: ThreadSanitizer: unexpected memory mapping"); 28 is what it handles.
+      - name: Let ThreadSanitizer map its shadow memory
+        run: sudo sysctl vm.mmap_rnd_bits=28
+      - name: Build and run the threaded tests under ThreadSanitizer
+        run: make tsan JOBS=4
+
   soak:
     name: Linux, GCC 14, differential soak
     runs-on: ubuntu-24.04

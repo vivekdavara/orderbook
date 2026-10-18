@@ -17,6 +17,8 @@ set(ORDERBOOK_SANITIZE "" CACHE STRING "Sanitizers to build with, e.g. address,u
 option(ORDERBOOK_COVERAGE "Build with Clang's source-based coverage (make coverage)" OFF)
 option(ORDERBOOK_FUZZ "Build the fuzz targets for libFuzzer (Clang only)" OFF)
 
+find_package(Threads REQUIRED)
+
 include(cmake/Warnings.cmake)
 include(cmake/Sanitizers.cmake)
 if(ORDERBOOK_COVERAGE)

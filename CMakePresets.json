@@ -42,6 +42,16 @@
       }
     },
     {
+      "name": "tsan",
+      "displayName": "Debug under ThreadSanitizer (the threaded tests)",
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "ORDERBOOK_SANITIZE": "thread",
+        "ORDERBOOK_BUILD_BENCHMARKS": "OFF"
+      }
+    },
+    {
       "name": "coverage",
       "displayName": "Debug with Clang source-based coverage",
       "inherits": "base",
@@ -78,6 +88,10 @@
       "configurePreset": "asan"
     },
     {
+      "name": "tsan",
+      "configurePreset": "tsan"
+    },
+    {
       "name": "coverage",
       "configurePreset": "coverage"
     },
@@ -112,6 +126,17 @@
     {
       "name": "asan",
       "configurePreset": "asan",
+      "output": {
+        "outputOnFailure": true
+      },
+      "execution": {
+        "timeout": 300,
+        "noTestsAction": "error"
+      }
+    },
+    {
+      "name": "tsan",
+      "configurePreset": "tsan",
       "output": {
         "outputOnFailure": true
       },

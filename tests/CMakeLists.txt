@@ -16,9 +16,10 @@ add_executable(orderbook_tests
   review4/diff_soak_script_test.cpp
   review4/state_mismatch_report_test.cpp
   scenario_test.cpp
+  spsc_ring_test.cpp
   text_test.cpp
   types_test.cpp)
-target_link_libraries(orderbook_tests PRIVATE orderbook::testkit GTest::gtest_main)
+target_link_libraries(orderbook_tests PRIVATE orderbook::testkit GTest::gtest_main Threads::Threads)
 orderbook_set_warnings(orderbook_tests)
 target_compile_definitions(orderbook_tests PRIVATE ORDERBOOK_SCENARIO_DIR="${CMAKE_CURRENT_SOURCE_DIR}/scenarios")
 
