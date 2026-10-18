@@ -352,13 +352,18 @@ The engine on its own thread, from sending a command to receiving its last event
 A round trip through both rings, one command at a time, is 166 to 167 ns at the median and 250 to 459 ns at p99: a few
 cache-line handoffs between the two cores each way, and the command itself. Paced at 1 M or 5 M commands a second, the
 median is 183 to 208 ns and p99 about 0.3 µs (3.2 µs in one run), but p99.9 is 26 to 35 µs at every size, where one at a
-time it is 0.3 to 0.7 µs. That tail isn't explained yet: both threads spin between commands, and a guess, not checked,
-is the scheduler moving or pausing one of them, which an unpinned thread on macOS can't prevent. Setting both threads to
-the user-interactive QoS class (which steers them to performance cores) left it at 22 to 29 µs in one run (11:17; not
-kept, and its comparison run without the setting was disturbed by other load and is discarded). The saturated runs top
-out at 13.3 to 13.8 M commands a second, a fifth or less of the engine's own rate: the sender, which reads the clock
-twice a command and drains every report, is the bottleneck here, and the tails there are queueing. The gateway (day 4)
-will be measured the same way.
+time it is 0.3 to 0.7 µs. Where that tail comes from, measured afterwards (`orderbook_latency` now also counts the paced
+commands sent more than 5 µs after they were due; 11:24, battery 39%, load average 3.1 to 3.2; the six paced runs gave
+p99.9 of 28 to 61 µs): 2,021 to 4,781 commands were sent over 5 µs late, 41% to 68% of the 4,113 to 8,590 that took over
+5 µs. So the sender's own thread was held up for about half of them, and the rest were sent on time and held up after
+it, on the engine's side. Both spinning threads stall for tens of microseconds now and then, not the rings or the
+engine's work; timing each command from when it was due charges a stall to every command due during it, which is the
+point of pacing (one at a time, a stall delays the one command in flight). What stalls them isn't traced; an unpinned
+thread on macOS can be paused or moved by the scheduler. Setting both threads to the user-interactive QoS class (which
+steers them to performance cores) left the p99.9 at 22 to 29 µs in one run (11:17; not kept; its comparison run without
+the setting was disturbed by other load and is discarded). The saturated runs top out at 13.3 to 13.8 M commands a
+second, a fifth or less of the engine's own rate: the sender, which reads the clock twice a command and drains every
+report, is the bottleneck here, and the tails there are queueing. The gateway (day 4) will be measured the same way.
 
 **Tried and measured, not kept: finding a level by walking from the top.** Most activity is near the top of the book, so
 a walk from the back of the level vector might beat the binary search. `BM_Engine` (5 repetitions, medians), binary

@@ -226,10 +226,13 @@ p99.99 is 167 to 209 ns at every size, against 833 to 958 ns for day 2's, whose 
 
 **What does a trip through the engine's thread cost?**
 One command at a time, from the sender's `try_send` to its last report: 166 to 167 ns at the median, 250 to 459 ns at
-p99, a few cache-line handoffs between cores each way plus the command. Paced at 1 M or 5 M a second the median is
-about 200 ns, but p99.9 jumps to 26 to 35 µs, which isn't explained yet (a guess: the scheduler moving or pausing a
-spinning thread, which can't be pinned on macOS). Saturated, 13.3 to 13.8 M commands a second: the measuring sender
-is the bottleneck, and the tail is queueing.
+p99, a few cache-line handoffs between cores each way plus the command. Paced at 1 M or 5 M a second the median is about
+200 ns, but p99.9 jumps to 26 to 35 µs. Counting the paced commands sent more than 5 µs late showed about half of the
+slow ones were held up on the sender's thread and the rest after it: both spinning threads stall for tens of
+microseconds now and then (unpinned, on macOS), and timing from when each command was due charges each stall to every
+command due during it. One at a time, a stall delays only the command in flight, which is why that mode's tail is so
+much smaller. Saturated, 13.3 to 13.8 M commands a second: the measuring sender is the bottleneck, and the tail is
+queueing.
 
 **What did the review of day 3 find?**
 No bug in 8.4 million edge-case commands against the reference model (books built with room for 0 to 2 orders, prices

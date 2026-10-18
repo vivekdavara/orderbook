@@ -167,6 +167,7 @@ void paced(const Workload& load, double rate) {
   std::vector<std::int64_t> samples(count);
   std::size_t next = 0;
   std::size_t done = 0;
+  std::size_t late = 0;  // paced commands sent more than 5 µs after they were due: the sender was held up
   Report report;
   const auto start = Clock::now();
   const auto interval = std::chrono::duration<double, std::nano>(rate > 0 ? 1e9 / rate : 0);
@@ -176,6 +177,7 @@ void paced(const Workload& load, double rate) {
       const auto when = start + std::chrono::duration_cast<Clock::duration>(interval * static_cast<double>(next));
       if (now >= when && engine.try_send(Request{first + next, load.timed[next]})) {
         due[next] = rate > 0 ? when : now;
+        if (rate > 0 && nanoseconds(now - when) > 5'000) ++late;
         ++next;
       }
     }
@@ -188,6 +190,9 @@ void paced(const Workload& load, double rate) {
   }
   const double seconds = std::chrono::duration<double>(Clock::now() - start).count();
   engine.stop();
+  // How much of the tail the sender's own delays explain: commands sent late, against commands slower than 5 µs.
+  const auto slow = static_cast<std::size_t>(
+      std::count_if(samples.begin(), samples.end(), [](std::int64_t s) { return s > 5'000; }));
   char name[64];
   if (rate > 0) {
     std::snprintf(name, sizeof name, "paced %.0fM/s (got %.2fM/s)", rate / 1e6, static_cast<double>(count) / seconds / 1e6);
@@ -195,6 +200,7 @@ void paced(const Workload& load, double rate) {
     std::snprintf(name, sizeof name, "saturated (%.2fM/s)", static_cast<double>(count) / seconds / 1e6);
   }
   print_row(name, engine.book().size(), samples);
+  if (rate > 0) std::printf("%26s sent over 5 us late: %zu; slower than 5 us: %zu\n", "", late, slow);
 }
 
 }  // namespace
