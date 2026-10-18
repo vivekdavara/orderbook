@@ -69,9 +69,20 @@ void BM_ReferenceBook(benchmark::State& state) {
 }
 BENCHMARK(BM_ReferenceBook)->Arg(10)->Arg(100)->Arg(200)->Arg(400)->Arg(1'000)->Arg(10'000)->Unit(benchmark::kMillisecond);
 
+// A new, empty book. Day 3's engine is built with room for every book these workloads make (the largest holds about
+// 5,500 orders), so it never grows in the timed part; it would grow a few times past its default room otherwise.
+template <typename Engine>
+Engine fresh_book() {
+  return Engine();
+}
+template <>
+Book fresh_book<Book>() {
+  return Book(BookCapacity{.orders = 32'768, .levels = 8'192});
+}
+
 // An engine on exactly the reference model's commands and book (the differential tests say the books are the same
-// after every command). An engine can't be copied, since its index points into its own containers, so each
-// iteration builds its book again from the warm-up, outside the timing.
+// after every command). Day 2's engine can't be copied, since its index points into its own containers, so for both
+// engines each iteration builds its book again from the warm-up, outside the timing.
 template <typename Engine>
 void BM_EngineOf(benchmark::State& state) {
   const Workload load = workload(static_cast<std::size_t>(state.range(0)));
@@ -79,7 +90,7 @@ void BM_EngineOf(benchmark::State& state) {
   std::size_t resting = 0;
   for (auto _ : state) {
     state.PauseTiming();
-    Engine book;
+    Engine book = fresh_book<Engine>();
     for (const Command& command : load.warm_up) {
       events.clear();
       book.apply(command, events);
