@@ -302,13 +302,13 @@ slots of 16 bytes (1 MB), against a performance core's 128 KB L1 data cache. Day
 `Request`s a second. That gap is measured (CV under 0.6%) and not explained. It isn't how many slots share a cache line:
 a later run over six sizes (`--benchmark_filter=TwoThreads`, 5 repetitions, 11:18, battery 40%, load average 6 to 7, CVs
 3% to 25%) gave 48.6 M/s for 8 bytes, 59.5 M for 16, 33.2 M for 32, 354 M for the 48-byte `Request`, 26.4 M for 64 and
-28.5 M for 128, so only `Request` is fast. Counters added to the benchmark (11:20, the same conditions) show which
-thread waits: on the slow sizes the consumer found the ring empty 6.0 to 9.8 times per value and the producer found it
-full 0.02 to 0.03 times, so the producer is the bottleneck at 19 to 37 ns a push, ten times its cost alone; with
-`Request`, the ring was found empty 0.02 times per value and full 0.03 times, so neither waited. Making the consumer
-back off (32 pauses after each empty look, an experiment not kept) left the small values at 50.8 M/s and cut `Request`
-to 142 M/s, so the consumer's polling alone isn't what slows the producer. Why a 48-byte `std::variant` copy runs ten
-times faster across threads than plain values of 32 or 64 bytes is still open.
+28.5 M for 128, so only `Request` is fast. Counters added to the benchmark (11:20, battery 39%, load average 3.6 to 4.1)
+show which thread waits: on the slow sizes the consumer found the ring empty 6.0 to 9.8 times per value and the producer
+found it full 0.02 to 0.03 times, so the producer is the bottleneck at 19 to 37 ns a push, ten times its cost alone;
+with `Request`, the ring was found empty 0.02 times per value and full 0.03 times, so neither waited. Making the
+consumer back off (32 pauses after each empty look, an experiment not kept) left the small values at 50.8 M/s and cut
+`Request` to 142 M/s, so the consumer's polling alone isn't what slows the producer. Why a 48-byte `std::variant` copy
+runs ten times faster across threads than plain values of 32 or 64 bytes is still open.
 
 **Latency**, `make latency` (`build/release/bench/orderbook_latency 1000000`, 11:09:31 to 11:09:38): 1,000,000
 commands each, after the same warm-ups. The clock (`steady_clock`) steps in 41 to 42 ns and costs 13.5 ns a read, so
