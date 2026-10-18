@@ -110,10 +110,11 @@ Day 3's engine (`Book`; DESIGN.md "The engine" has the details and the alternati
 | Best price | O(1): the back of the side's vector |
 | Depth | O(L): one entry per level, from its kept total |
 
-`Book` is copyable and movable member by member (links are indices into its own pool), and a copy keeps its
-original's room; a moved-from book is empty and usable. If an allocation fails past the room, `apply` throws with the
-book well-formed and the events so far saying exactly what the command did. Day 2's engine (`std::map` of `std::list` levels, an `std::unordered_map` index) is `MapBook` in the test kit:
-the baseline in every benchmark, and a third book every rule test and scenario file runs on.
+`Book` is copyable and movable member by member (links are indices into its own pool), and a copy keeps its original's
+room; a moved-from book is empty and usable. If an allocation fails past the room, `apply` throws with the book
+well-formed and the events so far saying exactly what the command did. Day 2's engine (`std::map` of `std::list` levels,
+an `std::unordered_map` index) is `MapBook` in the test kit: the baseline in every benchmark, and a third book every
+rule test and scenario file runs on.
 
 ### The engine's thread
 
@@ -341,15 +342,14 @@ The engine on its own thread, from sending a command to receiving its last event
 | Paced, 5 M/s | 4,796 | 183 | 241 | 316 | 35,416 | 78,525 | 93,816 |
 | Saturated: 13.77 M/s | 4,796 | 333 | 375 | 11,417 | 65,042 | 72,250 | 74,042 |
 
-A round trip through both rings, one command at a time, is 166 to 167 ns at the median and 250 to 459 ns at p99: a
-few cache-line handoffs between the two cores each way, and the command itself. Paced at 1 M or 5 M commands a second, the
-median is 183 to 208 ns and p99 about 0.3 µs (3.2 µs in one run), but p99.9 is 26 to 35 µs at every size, where one at
-a time it is 0.3 to 0.7 µs. That tail isn't explained yet: both threads spin between commands, and a guess, not
-checked, is the scheduler moving or pausing one of them, which an unpinned thread on macOS can't prevent. The
-saturated runs top out at 13.3 to 13.8 M commands a second, a fifth or less of the engine's own rate: the sender,
-which reads the clock twice a command and drains every report, is the bottleneck here, and the tails there are
-queueing. The
-gateway (day 4) will be measured the same way.
+A round trip through both rings, one command at a time, is 166 to 167 ns at the median and 250 to 459 ns at p99: a few
+cache-line handoffs between the two cores each way, and the command itself. Paced at 1 M or 5 M commands a second, the
+median is 183 to 208 ns and p99 about 0.3 µs (3.2 µs in one run), but p99.9 is 26 to 35 µs at every size, where one at a
+time it is 0.3 to 0.7 µs. That tail isn't explained yet: both threads spin between commands, and a guess, not checked,
+is the scheduler moving or pausing one of them, which an unpinned thread on macOS can't prevent. The saturated runs top
+out at 13.3 to 13.8 M commands a second, a fifth or less of the engine's own rate: the sender, which reads the clock
+twice a command and drains every report, is the bottleneck here, and the tails there are queueing. The gateway (day 4)
+will be measured the same way.
 
 **Tried and measured, not kept: finding a level by walking from the top.** Most activity is near the top of the book, so
 a walk from the back of the level vector might beat the binary search. `BM_Engine` (5 repetitions, medians), binary
@@ -498,6 +498,40 @@ found that the CLI tests' message matching made CTest ignore exit codes (now tes
 text fuzzer's round-trip checks were never reached in CTest (`c00291c`), that `audit` ignored problems found mid-run
 (`cd389bd`), that several generator mutants were caught only by the pinned hashes (now by properties, `2c2baee`), and
 that nothing bounded the minimizer's replays (`cdaf411`); its docs corrections are in.
+
+## Review of day 3
+
+One background agent reviewed the day's code at `3bbeb16` (the engine, the id table, the ring and the engine's thread),
+as a correctness review in its own worktree, in 16 minutes. It reproduced no bug:
+
+- 8.4 million commands of its own edge-case harness against the reference model, every event and the whole state after
+  every command, under ASan and UBSan and at -O2: books built with room for 0 to 2 orders and levels (so everything
+  grows mid-command), prices clustered at 1, 10^9 and the middle, ids near 2^64, cancels of 0, of unknown ids and of
+  2^64 - 1, copies, copy and move assignment, self-assignment, two books swapping roles mid-stream.
+- `IdTable` against `std::map`: 1,500 seeds of 4,000 operations, with ids built from the multiplier's inverse so their
+  homes collide and clusters wrap the array's end, ids near 2^64, growth from no slots.
+- A market order sweeping 40,000 makers through the engine's thread (40,002 events through a ring of 16,384) under
+  TSan: in order, one last flag, no race.
+
+Two of its hypotheses reproduced here as failing tests, and are fixed (`2e54e0d`):
+
+- **A copy of a book had no room.** Vector copies keep only what they hold, so a copy of a book built with room
+  allocated 36 times on 200,000 commands. The copy constructor now reserves the original's room first.
+- **A failed allocation could break the book.** With an allocation failing in a copy of a nearly full book, the first
+  command left an empty level (`bids depth is '9980x0' but the orders sum to ''`): `rest` made the level, then the
+  pool failed to grow. Now every event is appended before the change it reports, and `rest` makes its node, level and
+  index entry, undoing each if a later one throws, before linking anything; `AFailedAllocationLeavesAWellFormedBook`
+  fails every allocation of every command of a 3,000-command stream in turn (3,917 failures).
+
+Its surviving mutations: `take(0)` without its guard counted one id fewer (now the id table's test and the rule
+suite's rejected cancel check `size()`); the engine thread's second look at the ring after it sees the stop flag, and
+the acquire load of the flag, survived TSan and 400 repeats, since the window is a few instructions wide (no test here
+can force it without a hook in the loop; the argument is in DESIGN.md); clearing a moved-from book's vectors (libc++
+already empties them); Fibonacci hashing replaced by `id & mask` (speed only; nothing pins it); and `level.tail =
+kNoNode` when a fill empties a level, dead since the level is popped next. Its docs points (stale descriptions of day
+2's engine as `Book`, the section name in two headers, three test comments, `pool_nodes()`'s comment) are fixed; one
+was in a pushed commit message: `4aef7ef` says the 2,000-order growth test sweeps "them" in order, and it sweeps the
+bids only.
 
 ## Review of day 2
 

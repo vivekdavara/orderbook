@@ -218,6 +218,35 @@ their late sends and the stall would vanish from the percentiles. That is coordi
 (`steady_clock`) steps in 41 to 42 ns (a 24 MHz timer) and costs 13 ns a read, so the per-command figures are in
 steps: the median is one step, and only the tail spans several.
 
+**What did day 3 buy, in numbers?**
+`make bench` at `2e54e0d` (on battery, 5 repetitions, medians): 82 to 92 M commands a second from 7 to 583 resting
+orders, 58 M at 5,410, against 19 to 24 M for day 2's engine in the same run: 3.8 to 4.5 times, and 3.0 at 5,410. On
+a 7-order book it now edges the reference model's vector scan (1.07 times; day 2's was 0.24). In `make latency` its
+p99.99 is 167 to 209 ns at every size, against 833 to 958 ns for day 2's, whose allocations show in the tail.
+
+**What does a trip through the engine's thread cost?**
+One command at a time, from the sender's `try_send` to its last report: 166 to 167 ns at the median, 250 to 459 ns at
+p99, a few cache-line handoffs between cores each way plus the command. Paced at 1 M or 5 M a second the median is
+about 200 ns, but p99.9 jumps to 26 to 35 µs, which isn't explained yet (a guess: the scheduler moving or pausing a
+spinning thread, which can't be pinned on macOS). Saturated, 13.3 to 13.8 M commands a second: the measuring sender
+is the bottleneck, and the tail is queueing.
+
+**What did the review of day 3 find?**
+No bug in 8.4 million edge-case commands against the reference model (books built with room for 0 to 2 orders, prices
+at both bounds, ids near 2^64, copies and moves mid-stream) or 6 million id-table operations with colliding homes. Two
+of its hypotheses reproduced as failing tests here: a copy of a book had no room (vector copies keep only what they
+hold: 36 allocations on 200,000 commands), and a failed allocation could leave an empty level (`rest` made the level,
+then the pool failed to grow). Both are fixed; the second led to the rule that every event is appended before the
+change it reports, and to a test that fails each allocation of each command in turn. Its surviving mutations: `take(0)`
+without its guard (now tested), and lines no test can see (the stop protocol's second look, the source's `clear()`s
+after a move).
+
+**Why not catch the exception on the engine's thread?**
+If applying a command throws, the book is well-formed, but that command was cut short: an order whose remainder was to
+rest doesn't, with no event saying so. An engine that keeps matching after that has clients holding a wrong picture of
+their orders. So the exception leaves the thread and the process terminates (fail-stop); within its room the engine
+allocates nothing, so it can only happen past the room a deployment chose.
+
 ## Testing
 
 **Why write a slow reference model at all?**
@@ -367,12 +396,13 @@ SHA-256 hashes (`cmake/Dependencies.cmake`); the runners are `ubuntu-24.04` and 
 GitHub moves to Ubuntu 26 from October 19.
 
 **What do the benchmark numbers mean?**
-`BM_ReferenceBook/N` fills a book to about N orders with a random stream, then times the same 10,000 commands
-against a fresh copy of it. At 582 resting orders the reference does 4.54 M commands/s; at 5,417, 535 k: nine times
-the orders, 8.5 times the cost per command, linear as a scan should be. `BM_Engine/N` times the same commands against
-the same book (it can't copy one, so it rebuilds the book from the warm-up with the timer paused): 43 to 53 ns a
-command from 7 to 5,410 orders. All were measured on battery with other apps open (day 2's during a video call), so
-treat them as rough; the comparison between the two books on the same run is the reliable part.
+`BM_ReferenceBook/N` fills a book to about N orders with a random stream, then times the same 10,000 commands against a
+fresh copy of it. At 582 resting orders the reference does 4.54 M commands/s; at 5,417, 535 k: nine times the orders,
+8.5 times the cost per command, linear as a scan should be. `BM_Engine/N` and `BM_MapBook/N` time the same commands
+against the same book (each iteration rebuilds the book from the warm-up with the timer paused, since day 2's engine
+can't be copied): on day 3, 10.9 to 12.1 ns a command for the engine up to 583 orders and 17.3 ns at 5,410, against 42
+to 52 ns for day 2's. All were measured on battery with other apps open (day 2's first run during a video call), so
+treat them as rough; the comparison between books in the same run is the reliable part.
 
 ## Limits
 
