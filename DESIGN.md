@@ -3,7 +3,7 @@
 A limit order book for one instrument and the matching engine that runs it. Clients send commands (new orders and
 cancels); the engine answers each command with a list of events (acceptances, rejections, trades, cancellations).
 This document is the specification: the rules below are what the reference model implements literally and what the
-engine (`Book`, day 2) reproduces event for event.
+engine (`Book`: built on day 2, rebuilt for speed on day 3) reproduces event for event.
 
 ## Goals and non-goals
 
@@ -196,30 +196,100 @@ on books of hundreds to thousands of orders. It is never the thing that gets opt
 
 ## The engine
 
-Day 2's engine (`include/orderbook/book.hpp`) is the conventional design, and day 3 makes it fast without changing a
-single event:
+The engine is `Book` (`include/orderbook/book.hpp`). Day 2 built the conventional design; day 3 rebuilt it for speed
+without changing a single event, and kept day 2's as `MapBook` in the test kit, so the two are measured in the same
+runs and the rules run on both.
 
-- **Day 2, built.** Each side is a `std::map` from price to level, ordered best first by one comparator type for
-  both sides (`BetterPrice{side}`), so both sides are the same map type. Each level is a `std::list` of its orders,
-  oldest first, with the level's total quantity kept as orders fill and cancel. A `std::unordered_map` from order id
-  to the order's level and list node (two iterators) makes a cancel O(1) amortised. Matching takes the first level,
-  trades with its queue from the front, erases each maker it fills from the index and the queue, and erases the
-  level when it empties; a limit order's remainder goes to the back of its level (made if new). Validation is the
-  engine's own function, in the specified order, but the bounds and their predicates (`valid_price`, `valid_quantity`
-  in `types.hpp`) are vocabulary both books share, so a mistake in them would pass every differential test; the
-  hand-written tests (`types_test.cpp`, `Books.BoundsAreInclusive`, `09_validation.txt`) check them. The book is
-  move-only: a copy would need its index rebuilt
-  for its own nodes, and a member-wise copy would point into the original.
-- **What day 2 costs.** At 7 resting orders the engine did 20.4M commands/s against the reference model's 86.0M, and
-  at 5,410 it did 18.9M against 516k (README, "Results (day 2)"): flat in the book's size, but slower than a vector
-  scan on small books, because each order that rests allocates a list node and a hash node (and a new level a map
-  node), and matching follows pointers through all three.
-- **Day 3, the plan.** Orders as nodes of intrusive doubly-linked lists, allocated from a pool sized up front, so the
-  hot path never calls `new`; levels in a structure that keeps the best price cheap to find (most activity is near
-  the top of the book); an open-addressing id table. Each change is measured before and after, and checked by the
-  same differential tests.
-- Events go to a sink the caller provides, so the engine itself never allocates per event (day 3; day 2 appends to a
-  caller's vector, which allocates only while it grows).
+- **Day 2 (`MapBook`).** Each side a `std::map` from price to level, ordered best first by one comparator type for
+  both sides (`BetterPrice{side}`); each level a `std::list` of its orders, oldest first, with its total quantity kept
+  as orders fill and cancel; a `std::unordered_map` from order id to the order's level and list node, so a cancel is
+  O(1) on average. Correct and flat in the book's size (about 20 M commands/s from 7 resting orders to 5,410), but
+  every order that rests allocates a list node and a hash node (and a new level a map node), and matching follows
+  pointers through all three: at 7 resting orders it was 4 times slower than the reference model's vector scan.
+- **Day 3 (`Book`), as built:**
+  - **The pool.** Every resting order is a node in one `std::vector<OrderNode>` (id, remaining, price, side, prev,
+    next: 40 bytes). A node an order leaves goes on a free list threaded through `next`, and the next order to rest
+    takes it, so after the book has been as big as it gets, resting and leaving allocate nothing. Nodes are linked
+    by 32-bit indices, not pointers: half the size, and the whole book is position-independent, so growing the pool
+    (a vector reallocation), moving the book or copying it keeps every link valid.
+  - **Levels.** Each price level is an intrusive FIFO of those nodes: the level holds its price, its total, and the
+    indices of its oldest and newest orders; each node holds its neighbours'. Appending, taking the head and
+    unlinking from anywhere are O(1).
+  - **Sides.** Each side is a `std::vector` of its levels sorted **worst first**, so the best level is the back:
+    the best price is `back()`, a taker trades from the back and pops a level it empties, and a new level near the
+    top of the book is inserted near the back, moving few. A level is found by binary search on price (a cancel needs
+    its order's level; resting needs the level at its price, or the place for a new one). Inserting or erasing a level
+    deep in the book moves every level above it: O(levels) in the worst case, a `memmove` of 24-byte entries.
+  - **The index.** `IdTable` (`include/orderbook/id_table.hpp`) is an open-addressing hash table from order id to
+    node: one array of 16-byte slots, linear probing, at most half full, Fibonacci hashing (the top bits of id times
+    2^64/φ, which spreads increasing ids), and backward-shift deletion (Knuth's Algorithm R: later entries of the
+    cluster move back into the hole unless their probe starts after it), so there are no tombstones and a probe stops
+    at the first empty slot. Id 0 marks an empty slot; ids start at 1, so it never rests. A cancel takes its node in
+    one probe on average.
+  - **Room up front.** `BookCapacity{orders, levels}` (4,096 and 1,024 a side by default) reserves the pool, the
+    index and both sides' level vectors when the book is built. Within it, nothing the book does allocates; past it,
+    the book still works, and allocates each time it passes a new high-water mark (the pool and the index double).
+    Events still go to the caller's `std::vector<Event>`, which allocates only while it grows; a caller that reuses
+    one (the engine's thread does) allocates nothing once it is as long as the longest answer so far.
+  - **Copies and moves.** Copyable member by member (day 2's could only move: its index held iterators into its own
+    containers). The moves are written out so that a moved-from book is empty and can be used again: a defaulted move
+    would leave the free list's head pointing into a pool that went with the move.
+  - **Limits.** 2^32 - 1 nodes (the index type), checked: the pool throws `std::length_error` past it, as an
+    allocation failure would throw `std::bad_alloc`; either leaves that command's events and book in an unspecified
+    state (a limitation since day 2).
+What each operation costs, day 3:
+
+| Operation | Cost |
+|---|---|
+| A new order that rests at an existing level | binary search over the side's levels, O(1) append, one index insert |
+| A new order that makes a level | binary search, then a vector insert: O(levels better than it) moved |
+| A trade that fills a maker | O(1): take the head, one index removal; O(1) to pop the level if it empties (the back) |
+| A cancel | one index probe on average, binary search for its level, O(1) unlink; erasing an emptied level moves the levels above it |
+| Best price | O(1): the back |
+
+The alternatives considered: a `std::map` with a pool allocator (keeps the pointer-chasing and the tree's
+rebalancing), an array indexed by price over a window around the mid (O(1) level lookup, but prices span 1 to 10^9,
+so it needs a fallback for prices outside the window and a scan to find the next best level), and a heap of prices
+(no way to iterate the depth in order). The sorted vector is the simplest that keeps the best level at a fixed,
+cheap place and the levels in cache-friendly order; its cost is a deep insert or erase.
+
+**Checked the same way as day 2.** Every test that ran on day 2's engine runs on this one unchanged: the scenario
+files, the typed rule suite (now on all three books), the differential tests against the reference model (720,000
+commands in every `make check`, 1.04 billion in `make soak`), the lockstep fuzzer, and the pinned determinism hash
+(I7: the engine never iterates its hash index). New: `IdTable` against `std::unordered_map` on random operations,
+the pool's reuse and growth, copies and moves, and the allocation count (`tests/allocation_test.cpp`, below).
+
+## Threads (day 3)
+
+One engine thread owns the book, so the book itself takes no locks. Commands reach it, and events leave it, through
+two single-producer single-consumer rings (`include/orderbook/spsc_ring.hpp`, `include/orderbook/engine_thread.hpp`).
+
+- **The ring.** `SpscRing<T, Size>`: a power-of-two array, a push count (`tail_`) written only by the producer and a
+  pop count (`head_`) written only by the consumer; both only increase, a slot is the count modulo the size, and full
+  is `tail - head == Size`. The producer writes the slot, then stores the tail with **release**; the consumer loads
+  the tail with **acquire** before reading the slot, so it sees what was written. Freeing a slot is the mirror image
+  (the consumer stores the head with release after reading; the producer loads it with acquire before overwriting).
+  Each side keeps a private copy of the other's count and reloads the shared one only when its copy says full (or
+  empty), so most pushes and pops touch no line the other thread writes except the slot. The two counts are on
+  separate 128-byte lines (Apple's M-series line size, and the pair of 64-byte lines modern x86 prefetches together),
+  each with its own side's copy, so the threads never write the same line. No locks, no allocation after
+  construction, no system calls; a full or empty ring is reported, never waited on.
+- **The engine's thread.** `EngineThread` starts a thread that owns a `Book`. A `Request` is a command with the
+  sender's sequence number; each event comes back as a `Report` with that number, and the command's last event is
+  flagged (every command has at least one event: an acceptance, a rejection or a cancellation), so the sender knows
+  when a command is done. Rings of 16,384 each way. The engine spins on an empty ring of requests with the core's
+  pause hint (`pause` on x86, `yield` on ARM): a core of its own, as low-latency engines run.
+- **Back-pressure.** If the ring of reports is full, the engine waits for room, and stops taking requests; if the ring
+  of requests is full, the sender's `try_send` fails. So the sender must keep receiving while it waits to send, or
+  each thread waits on a full ring forever.
+- **Stopping.** `stop()` stores a flag with release and joins. The engine looks at the flag only when the ring of
+  requests is empty, so it applies everything already sent; when it sees the flag, it looks at the ring once more,
+  since the flag's release store orders the sender's last push before it, so a request sent just before the stop
+  isn't lost. If it is waiting for room in the ring of reports when the flag comes, it stops there: the sender has
+  stopped receiving, so the rest would never be read. The book is readable once stopped.
+- **Not done.** Pinning the two threads to cores: macOS has no API for it on Apple silicon (only an affinity *hint*),
+  so the measurements here are of threads the scheduler places; Linux would use `pthread_setaffinity_np`. The gateway
+  that sends and the TCP side are day 4's.
 
 ## Architecture (the plan for day 4)
 
@@ -235,9 +305,9 @@ flowchart LR
 ```
 
 One engine thread owns the book, so the book itself needs no locks. The gateway thread parses client messages,
-assigns increasing order ids, and pushes commands through a single-producer single-consumer ring buffer (lock-free,
-day 3); events come back through a second ring. Day 4 adds the gateway, a load generator, a synthetic market-data
-replay and L2 snapshots.
+assigns increasing order ids, and pushes commands through a single-producer single-consumer ring (built on day 3, with
+the engine's thread: "Threads" above); events come back through a second ring. Day 4 adds the gateway, a load
+generator, a synthetic market-data replay and L2 snapshots.
 
 ## Testing
 
@@ -275,8 +345,21 @@ replay and L2 snapshots.
 - **Coverage.** `make coverage` reports the tests' line and branch coverage of `src/` and `include/`.
 - **GCC before pushing.** `make gcc-check` compiles the project's files with Homebrew's GCC, since CI's GCC job flags
   warnings Clang doesn't give.
-- **Benchmarks** (Google Benchmark): commands per second for both books on the same commands against the same book
-  (the reference model is the baseline); latency percentiles from day 3.
+- **No allocation** (day 3). `tests/allocation_test.cpp` replaces the global `operator new` with one that counts
+  calls, and counts them while a book applies 200,000 random commands: 0 for the engine built with room, in four
+  mixes; day 2's engine on the same commands is the control (it allocates for every order that rests), so a counter
+  that missed the containers' allocations would fail. Its own executable, since the replacement is process-wide, and
+  not built under the sanitizers, which replace `operator new` themselves.
+- **Threads** (day 3). The ring and the engine's thread are tested on two threads (values in order and whole; the
+  engine's answers through the rings equal the book's when called directly), and `make tsan` (CI too) runs those
+  tests under ThreadSanitizer, which reports a missing happens-before as a data race. It sees that only for values
+  copied word by word: on this Mac it reported a ring of integers published with a relaxed store and not a ring of
+  64-byte structs with the same bug (copied with `memcpy`), so the ring's threaded tests run on both.
+- **Benchmarks** (Google Benchmark): commands per second for the three books on the same commands against the same
+  book (the reference model and day 2's engine are the baselines). **Latency percentiles** (`make latency`,
+  `bench/latency.cpp`): each command timed alone in one thread, and the engine's thread timed from the sender's side,
+  one command at a time, paced at a fixed rate (timed from when each command was due, so a held-up sender counts its
+  wait), and saturated.
 
 ## Plan
 
@@ -284,6 +367,6 @@ replay and L2 snapshots.
 |---|---|
 | 1 | This design, the CMake scaffold, the types and text format, the reference model, scenario files, the random command generator and invariant checks (the Audit), a minimizer for failing runs, fuzz targets, the CLI, the benchmark harness, coverage, CI on Linux and macOS. |
 | 2 | The matching engine (price levels, FIFO per level, trade events), differential tests against the reference. Done. |
-| 3 | Performance: intrusive lists, object pools, no allocation on the hot path; a lock-free SPSC ring; benchmarks (orders/s, latency percentiles). |
+| 3 | Performance: intrusive lists, object pools, no allocation on the hot path; a lock-free SPSC ring; benchmarks (orders/s, latency percentiles). Done. |
 | 4 | Replay of a synthetic market-data stream, L2 snapshots, the TCP gateway (8107) with a load generator. |
 | 5 | Latency histograms, README with results, WALKTHROUGH.md, v1.0.0. |

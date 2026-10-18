@@ -17,6 +17,7 @@ bool crosses(const NewOrder& taker, Price maker_price) {
 }  // namespace
 
 Book::Book(BookCapacity capacity) : index_(capacity.orders) {
+  static_assert(sizeof(OrderNode) == 40 && sizeof(PriceLevel) == 24, "the sizes DESIGN.md gives");
   nodes_.reserve(capacity.orders);
   bids_.reserve(capacity.levels);
   asks_.reserve(capacity.levels);
