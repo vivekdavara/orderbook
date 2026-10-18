@@ -1,11 +1,13 @@
 // The engine's own structure: its levels appear and go away with their orders, each level's total follows its
-// queue, cancels unlink an order from anywhere in a queue, and a moved book keeps a working index. The rules
+// queue, cancels unlink an order from anywhere in a queue, the pool reuses the nodes orders leave and grows past the
+// room it was built with, and copies and moves keep every link. The rules
 // themselves are tested on both books in books_test.cpp, and against the reference model in differential_test.cpp.
 
 #include "orderbook/book.hpp"
 
 #include <gtest/gtest.h>
 
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -154,6 +156,98 @@ TEST(Engine, AMovedBookKeepsAWorkingIndex) {
   EXPECT_TRUE(assigned.depth(Side::Sell).empty());
   EXPECT_EQ(assigned.size(), 0U);
   EXPECT_EQ(run(assigned, "new 4 buy limit 1 @ 100"), Lines{"rejected 4 id-not-increasing"});
+}
+
+TEST(Engine, ThePoolReusesTheNodesOrdersLeave) {
+  Book book;
+  std::uint64_t id = 0;
+  for (int round = 0; round < 10; ++round) {
+    // 100 orders rest, then leave: the first half cancelled, the rest filled by one market order.
+    for (int i = 0; i < 100; ++i) {
+      run(book, "new " + std::to_string(++id) + " buy limit 1 @ " + std::to_string(100 + i % 7));
+    }
+    for (std::uint64_t cancelled = id - 99; cancelled <= id - 50; ++cancelled) {
+      run(book, "cancel " + std::to_string(cancelled));
+    }
+    run(book, "new " + std::to_string(++id) + " sell market 50");
+    ASSERT_EQ(book.size(), 0U) << round;
+    // The pool made 100 nodes in the first round and has used the same ones since.
+    ASSERT_EQ(book.pool_nodes(), 100U) << round;
+  }
+}
+
+TEST(Engine, ABookGrowsPastTheRoomItWasBuiltWith) {
+  // Room for 4 orders and 2 levels a side; 2,000 orders rest on 500 levels a side. The pool, the index and both
+  // sides' level vectors all grow, and every order is still found, in order.
+  Book book(BookCapacity{.orders = 4, .levels = 2});
+  for (int i = 0; i < 1'000; ++i) {
+    run(book, "new " + std::to_string(2 * i + 1) + " buy limit 1 @ " + std::to_string(1'000 + i % 500));
+    run(book, "new " + std::to_string(2 * i + 2) + " sell limit 1 @ " + std::to_string(2'000 + i % 500));
+  }
+  EXPECT_EQ(book.size(), 2'000U);
+  EXPECT_EQ(book.pool_nodes(), 2'000U);
+  EXPECT_EQ(book.depth(Side::Buy).size(), 500U);
+  EXPECT_EQ(book.depth(Side::Sell).size(), 500U);
+  EXPECT_EQ(book.best_price(Side::Buy), Price{1'499});
+  EXPECT_EQ(book.best_price(Side::Sell), Price{2'000});
+  // Orders 1 and 1001 rest at 1,000 (the worst bid), 1001 behind 1.
+  EXPECT_EQ(run(book, "cancel 1001"), Lines{"cancelled 1001 1 requested"});
+  EXPECT_EQ(run(book, "new 2001 sell market 2000"), [] {
+    Lines expected{"accepted 2001"};
+    for (int price = 1'499; price >= 1'000; --price) {
+      for (const int i : {price - 1'000, price - 1'000 + 500}) {
+        if (2 * i + 1 == 1'001) continue;  // cancelled
+        expected.push_back("trade 2001 " + std::to_string(2 * i + 1) + " 1 @ " + std::to_string(price));
+      }
+    }
+    expected.push_back("cancelled 2001 1001 unfilled");
+    return expected;
+  }());
+  EXPECT_TRUE(book.depth(Side::Buy).empty());
+  EXPECT_EQ(book.size(), 1'000U);
+}
+
+TEST(Engine, ACopyIsABookOfItsOwn) {
+  Book original;
+  run_all(original, {"new 1 buy limit 5 @ 100", "new 2 buy limit 5 @ 100", "new 3 sell limit 5 @ 102"});
+  Book copy = original;
+  EXPECT_EQ(run(copy, "cancel 1"), Lines{"cancelled 1 5 requested"});
+  EXPECT_EQ(run(copy, "new 4 sell market 7"), (Lines{"accepted 4", "trade 4 2 5 @ 100", "cancelled 4 2 unfilled"}));
+  // The original still has both bids, in order, and its own last accepted id.
+  EXPECT_EQ(original.orders(Side::Buy), (std::vector<RestingOrder>{{OrderId{1}, Side::Buy, Price{100}, Quantity{5}},
+                                                                    {OrderId{2}, Side::Buy, Price{100}, Quantity{5}}}));
+  EXPECT_EQ(original.last_accepted_id(), OrderId{3});
+  EXPECT_EQ(run(original, "cancel 2"), Lines{"cancelled 2 5 requested"});
+  EXPECT_EQ(copy.size(), 1U);
+  // Assigning a copy replaces what was there.
+  copy = original;
+  EXPECT_EQ(copy.orders(Side::Buy), (std::vector<RestingOrder>{{OrderId{1}, Side::Buy, Price{100}, Quantity{5}}}));
+  EXPECT_EQ(run(copy, "new 4 buy limit 1 @ 100"), Lines{"accepted 4"});
+  EXPECT_EQ(format(copy.depth(Side::Buy)), "100x6");
+  EXPECT_EQ(format(original.depth(Side::Buy)), "100x5");
+}
+
+TEST(Engine, AMovedFromBookIsEmptyAndCanBeUsedAgain) {
+  Book book;
+  run_all(book, {"new 1 buy limit 5 @ 100", "new 2 sell limit 5 @ 102", "cancel 1"});  // node 0 on the free list
+  Book moved(std::move(book));
+  EXPECT_EQ(book.size(), 0U);  // a moved-from book is empty
+  EXPECT_EQ(book.pool_nodes(), 0U);
+  EXPECT_EQ(book.last_accepted_id(), OrderId{0});
+  EXPECT_TRUE(book.orders(Side::Sell).empty());
+  // Used again, it doesn't reach for the free node it had: that node went with the move.
+  EXPECT_EQ(run(book, "new 1 sell limit 3 @ 101"), Lines{"accepted 1"});
+  EXPECT_EQ(run(book, "new 2 buy limit 1 @ 101"), (Lines{"accepted 2", "trade 2 1 1 @ 101"}));
+  EXPECT_EQ(format(book.depth(Side::Sell)), "101x2");
+  EXPECT_EQ(run(moved, "cancel 2"), Lines{"cancelled 2 5 requested"});
+
+  Book assigned;
+  assigned = std::move(moved);
+  EXPECT_EQ(moved.size(), 0U);
+  EXPECT_EQ(moved.pool_nodes(), 0U);
+  EXPECT_EQ(run(moved, "new 5 buy limit 2 @ 99"), Lines{"accepted 5"});
+  EXPECT_EQ(run(moved, "cancel 5"), Lines{"cancelled 5 2 requested"});
+  EXPECT_EQ(assigned.last_accepted_id(), OrderId{2});
 }
 
 }  // namespace
