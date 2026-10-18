@@ -6,6 +6,7 @@ add_executable(orderbook_tests
   check_test.cpp
   differential_harness_test.cpp
   differential_test.cpp
+  engine_thread_test.cpp
   id_table_test.cpp
   minimize_test.cpp
   random_flow_test.cpp

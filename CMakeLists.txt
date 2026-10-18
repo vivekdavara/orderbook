@@ -30,14 +30,16 @@ if(ORDERBOOK_FUZZ)
   add_compile_options(-fsanitize=fuzzer-no-link)
 endif()
 
-# The engine: the book itself, its vocabulary types and their text form.
+# The engine: the book itself, its thread and rings, its vocabulary types and their text form.
 add_library(orderbook
   src/book.cpp
+  src/engine_thread.cpp
   src/text.cpp
   src/types.cpp)
 add_library(orderbook::orderbook ALIAS orderbook)
 target_include_directories(orderbook PUBLIC ${PROJECT_SOURCE_DIR}/include)
 target_compile_features(orderbook PUBLIC cxx_std_20)
+target_link_libraries(orderbook PUBLIC Threads::Threads)
 orderbook_set_warnings(orderbook)
 
 # What tests, benchmarks and tools use to check a book: the reference model (the oracle), day 2's engine (the
