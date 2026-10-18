@@ -8,9 +8,14 @@ Reading order for day 1: DESIGN.md ("Validation", "Matching", "Events", "Invaria
 `src/reference_book.cpp` (one screen), a scenario file such as `tests/scenarios/03_time_priority.txt`, then
 `src/check.cpp` (`Audit::record_new`) and `src/random_flow.cpp`.
 
-Reading order for day 2: `include/orderbook/book.hpp` and `src/book.cpp` (`new_order`, `rest`, `cancel`), then
-`include/orderbook/differential.hpp` (`Lockstep`, `first_difference`, `shrink_to_scenario`), then
-`tests/differential_test.cpp` (`expect_same_books` and the seven mixes).
+Reading order for day 2: `include/orderbook/map_book.hpp` and `src/map_book.cpp` (day 2's engine, kept as `MapBook`:
+`new_order`, `rest`, `cancel`), then `include/orderbook/differential.hpp` (`Lockstep`, `first_difference`,
+`shrink_to_scenario`), then `tests/differential_test.cpp` (`expect_same_books` and the seven mixes).
+
+Reading order for day 3: DESIGN.md "The engine" and "Threads (day 3)", then `src/book.cpp` (`new_order`, `rest`,
+`cancel`, `allocate`, `release`, the moves), `include/orderbook/id_table.hpp` (`find`, `take`), `include/orderbook/
+spsc_ring.hpp` (`try_push`, `try_pop`), `src/engine_thread.cpp` (`run`), then `tests/allocation_test.cpp` and
+`bench/latency.cpp` (`paced`).
 
 ## The project
 
@@ -75,8 +80,11 @@ side. Two events per fill would double the engine's output for no information.
 
 ## The engine
 
-**How is the engine built?**
-`Book` (`src/book.cpp`) keeps each side as a `std::map` from price to level, best first, so the best price is
+The first questions here are about day 2's engine, which is now `MapBook` (`src/map_book.cpp`), kept as the
+baseline; day 3's rebuild is under "Performance (day 3)".
+
+**How was the engine built on day 2?**
+`MapBook` (`src/map_book.cpp`; it was `Book` until day 3) keeps each side as a `std::map` from price to level, best first, so the best price is
 `begin()`. A level is a `std::list` of `{id, remaining}` in arrival order plus its total quantity. An
 `std::unordered_map` from id to `{side, map iterator, list iterator}` finds a resting order without searching.
 A taker walks the opposite map from `begin()` while it crosses, trades with each level's queue from the front, erases
@@ -94,14 +102,14 @@ two maps would be different types, so the index would need two iterator types (a
 matching code would become a template. One type keeps one `Location` struct and one code path; the cost is a
 well-predicted branch per comparison, and day 3 replaces the map anyway.
 
-**Why is `Book` move-only?**
+**Why was day 2's `Book` move-only?** (Day 3's is copyable: see "Performance (day 3)".)
 Its index holds iterators into its own map and lists. A defaulted copy would copy those iterators, so the copy's
 cancels would unlink nodes in the original: a use-after-free once the original goes. Copying would need the index
 rebuilt for the copy's nodes, and nothing needs a copy, so the copy constructor is deleted (`book_test.cpp` asserts
 it). A move is safe: node-based containers hand their nodes to the new container, so every iterator still refers to
 the same element, now in the moved-to book; a test moves a book and then cancels and trades in it, under ASan too.
 
-**Why is the engine slower than the reference model on small books?**
+**Why was day 2's engine slower than the reference model on small books?**
 At 7 resting orders the reference model did 86.0M commands/s and the engine 20.4M; at 70, 25.3M and 20.9M; at 583
 the engine is 5.2 times faster, at 5,410, 37 times (`make bench`, `b0e54b2`, on battery). A side of 7 orders is a few
 cache lines of a vector the reference scans without allocating. The engine allocates a list node and a hash node for
@@ -115,11 +123,99 @@ both). But both call the same bounds predicates, `valid_price` and `valid_quanti
 made the price bound exclusive there, and every differential run still passed. Only the hand-written tests caught it
 (`Books.BoundsAreInclusive`, the validation scenario, `types_test.cpp`). Shared vocabulary needs its own tests.
 
-**Is the engine deterministic, with an `unordered_map` inside?**
-Iteration order of an `unordered_map` differs between standard libraries, but the engine never iterates its index:
-it only looks ids up. Everything that decides events or the reported state walks the maps and lists, whose order is
+**Is the engine deterministic, with a hash table inside?**
+Iteration order of an `unordered_map` differs between standard libraries, but day 2's engine never iterated its
+index, and day 3's never iterates its own `IdTable` either: they only look ids up. Everything that decides events or the reported state walks the maps and lists, whose order is
 the book's. A test requires the engine's events and final book on 50,000 commands to hash to the reference model's
 pinned value, on every CI job (GCC, Clang, Apple Clang; Debug, Release, sanitizers).
+
+## Performance (day 3)
+
+**What did day 3 change, and what stayed the same?**
+The engine's insides, not one event. `Book` is now a pool of order nodes linked by 32-bit indices, each level an
+intrusive FIFO of them, each side a vector of levels sorted worst first (best at the back), and an open-addressing
+id table; day 2's engine stays as `MapBook` in the test kit, so both are measured in the same runs. Every test that
+ran on day 2's engine ran on the new one and passed first time, unchanged but for the assertion that a `Book` can't be
+copied: the scenario files, the rule suite, 720,000 differential commands in `make check`, 1.04 billion in `make soak`
+(39 s), the pinned determinism hash.
+
+**Why indices instead of pointers?**
+Half the size (4 bytes against 8, so a node is 40 bytes), and the book becomes position-independent: the pool is a
+`std::vector` that may reallocate when it grows, and a pointer into it would dangle; an index doesn't. It also makes
+copying and moving the book member by member correct, which day 2's iterator-holding index couldn't be. The cost is
+an add per hop (`nodes_[i]`), which is free next to a cache miss.
+
+**Why a sorted vector of levels, with the best at the back?**
+Most activity is at the top of the book. With the best level at the back, the best price is `back()`, a taker fills
+from the back and pops levels it empties, and a new level near the top is inserted near the back, so few entries move.
+The levels sit in one contiguous array, so walking them for depth or a sweep is a linear scan. The worst case is an
+insert or erase deep in the book, which moves every level above it (24 bytes each): O(levels). A `std::map` never
+moves anything but chases a pointer per level; a price-indexed array is O(1) but prices span 1 to 10^9.
+
+**How does the id table delete without tombstones?**
+Linear probing with backward-shift deletion (Knuth's Algorithm R, `IdTable::take`). After emptying a slot, walk the
+rest of the cluster: an entry may move back into the hole unless its home slot lies cyclically after the hole and
+at or before its own slot (moving it back would put it before where its probe starts). Each entry that moves leaves
+the new hole. So a probe can always stop at the first empty slot, and lookups never slow down as orders come and go.
+The random test against `std::unordered_map` runs on a 16-slot table where clusters wrap past the end; the three
+mutations of that condition (move everything, move nothing, ignore the wrap) each fail it.
+
+**Why Fibonacci hashing?**
+Ids increase by one. `id * 2^64/φ`, keeping the top bits, sends consecutive ids far apart, so an increasing run of
+ids doesn't fill one cluster; it costs one multiply and one shift, and the table's size being a power of two makes
+the shift the modulo.
+
+**How do you know the engine doesn't allocate?**
+`tests/allocation_test.cpp` replaces the global `operator new` with a counter and counts the calls while a book
+applies 200,000 random commands: 0 for the engine, in four mixes. A count of 0 could also mean a broken counter, so
+day 2's engine runs the same commands as the control: 169,627 to 211,721 allocations. Past its room (4,096 orders by
+default, on a stream that reaches 7,670), the engine made 4 allocations in 100,000 commands: the pool, the index and
+both sides' levels growing once each. Removing the free list or any of the three reservations fails the test.
+
+**Why write the move constructor yourself?**
+The defaulted one moves the vectors (leaving them empty) but copies the free list's head, so a moved-from book would
+take its next node from an index into a pool it no longer has: a crash, as the mutation showed. The written moves
+reset it, so a moved-from book is empty and usable. The move assignment also clears the source's vectors, because the
+standard only promises "valid but unspecified" there; libc++ empties them anyway, so no test here can fail that line.
+
+**How does the ring work without locks?**
+Two counters, each written by one thread only: the producer's push count and the consumer's pop count. The producer
+writes the slot, then stores its count with release; the consumer loads it with acquire, so the slot's contents are
+visible before it reads them. Freeing is the mirror image. Each side caches the other's count and only reloads it when
+the ring looks full (or empty), so the common case touches no shared line but the slot. The counters only increase,
+so there is no ABA: a slot is the count modulo the size.
+
+**Why 128-byte alignment?**
+False sharing: if the two counters shared a cache line, each thread's write would take the line from the other's
+core every time. This M3 reports `hw.cachelinesize` 128, and Intel cores prefetch 64-byte lines in pairs, so 128
+keeps them apart on both.
+
+**What did ThreadSanitizer miss?**
+A probe outside the repo: TSan reported a ring of `uint64_t` whose push published with a relaxed store, and stayed
+silent on the same bug with 64-byte struct values, which the compiler copies with `memcpy`. So the ring's threaded
+tests run on both: integers, where TSan sees every one of the three memory-order mutations, and structs whose fields
+must agree, which on the M3's weak memory model caught a relaxed load of the tail as torn values even without TSan.
+
+**What happens if the sender stops reading reports?**
+The engine fills the ring of reports, waits for room and takes no more requests; then the ring of requests fills and
+`try_send` fails. Both threads wait: so the rule is that the sender keeps receiving while it waits to send. `stop()`
+copes with a sender that has given up: the engine checks the stop flag while it waits for room and leaves. A test
+drives exactly that state (it is the only state in which 2 × 16,384 + 1 sends can succeed) and checks that `stop()`
+returns with 16,385 commands applied.
+
+**Can a request sent just before `stop()` be lost?**
+The engine looks at the flag only when the ring is empty, and then looks at the ring once more. The flag is stored
+with release after the sender's last push, and the engine loads it with acquire, so if it sees the flag it also sees
+that push. No test can catch the flag stored relaxed (the window is a few instructions), so the argument is the
+guarantee; a mutation run with it relaxed passed.
+
+**How do you measure latency, and what is coordinated omission?**
+`bench/latency.cpp` times each command alone (a clock read either side), and the engine's thread from the sender's
+side. In the paced runs each command is due at start + i/rate and its latency is measured from when it was due, not
+when it was sent: if the sender is held up (the ring is full), the commands behind it would otherwise be timed from
+their late sends and the stall would vanish from the percentiles. That is coordinated omission. The clock here
+(`steady_clock`) steps in 41 to 42 ns (a 24 MHz timer) and costs 13 ns a read, so the per-command figures are in
+steps: the median is one step, and only the tail spans several.
 
 ## Testing
 
