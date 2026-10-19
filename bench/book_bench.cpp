@@ -1,6 +1,7 @@
 // Benchmarks: the random command stream, the throughput of each book on the same commands against the same book, so
 // the engine's numbers stand beside the reference model's (day 1's baseline) and day 2's engine's (`MapBook`, the
-// baseline for day 3's), and the SPSC ring on one thread and two. Run them from the release build: `make bench`.
+// baseline for day 3's), the engine with the depth feed (day 4), and the SPSC ring on one thread and two. Run them
+// from the release build: `make bench`.
 
 #include <benchmark/benchmark.h>
 
@@ -13,6 +14,7 @@
 #include "orderbook/book.hpp"
 #include "orderbook/engine_thread.hpp"
 #include "orderbook/map_book.hpp"
+#include "orderbook/market_data.hpp"
 #include "orderbook/random_flow.hpp"
 #include "orderbook/reference_book.hpp"
 #include "orderbook/spsc_ring.hpp"
@@ -121,6 +123,45 @@ void BM_Engine(benchmark::State& state) { BM_EngineOf<Book>(state); }
 void BM_MapBook(benchmark::State& state) { BM_EngineOf<MapBook>(state); }
 BENCHMARK(BM_Engine)->Arg(10)->Arg(100)->Arg(200)->Arg(400)->Arg(1'000)->Arg(10'000)->Unit(benchmark::kMillisecond);
 BENCHMARK(BM_MapBook)->Arg(10)->Arg(100)->Arg(200)->Arg(400)->Arg(1'000)->Arg(10'000)->Unit(benchmark::kMillisecond);
+
+// The engine with the depth feed following its events (day 4), as the gateway runs them: next to BM_Engine on the
+// same commands and book, the difference is what building the L2 levels costs.
+void BM_EngineAndDepthFeed(benchmark::State& state) {
+  const Workload load = workload(static_cast<std::size_t>(state.range(0)));
+  std::vector<Event> events;
+  std::vector<LevelUpdate> updates;
+  std::size_t changed = 0;
+  for (auto _ : state) {
+    state.PauseTiming();
+    Book book = fresh_book<Book>();
+    DepthFeed feed;
+    for (const Command& command : load.warm_up) {
+      events.clear();
+      updates.clear();
+      book.apply(command, events);
+      feed.apply(command, events, updates);
+    }
+    changed = 0;
+    state.ResumeTiming();
+    for (const Command& command : load.timed) {
+      events.clear();
+      updates.clear();
+      book.apply(command, events);
+      feed.apply(command, events, updates);
+      changed += updates.size();
+    }
+    benchmark::DoNotOptimize(updates.data());
+    benchmark::ClobberMemory();
+    state.PauseTiming();
+    book = Book();
+    feed = DepthFeed();
+    state.ResumeTiming();
+  }
+  state.SetItemsProcessed(state.iterations() * static_cast<benchmark::IterationCount>(load.timed.size()));
+  state.counters["updates"] = static_cast<double>(changed) / static_cast<double>(load.timed.size());
+}
+BENCHMARK(BM_EngineAndDepthFeed)->Arg(10)->Arg(100)->Arg(200)->Arg(400)->Arg(1'000)->Arg(10'000)
+    ->Unit(benchmark::kMillisecond);
 
 // The ring's own cost on one thread: a push and a pop of one value, the ring never full or empty for long.
 template <typename T>
