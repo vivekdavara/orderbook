@@ -14,12 +14,14 @@
 
 #include <arpa/inet.h>
 
+#include <cerrno>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <string>
 #include <string_view>
 #include <thread>
+#include <utility>
 #include <variant>
 #include <vector>
 
@@ -35,7 +37,8 @@ using Lines = std::vector<std::string>;
 // A gateway on a free port, its loop on a thread of its own.
 class RunningGateway {
  public:
-  RunningGateway() : thread_([this] { gateway_.run(); }) {}
+  explicit RunningGateway(GatewayOptions options = {.port = 0})
+      : gateway_(std::move(options)), thread_([this] { gateway_.run(); }) {}
   RunningGateway(const RunningGateway&) = delete;
   RunningGateway& operator=(const RunningGateway&) = delete;
   ~RunningGateway() {
@@ -45,15 +48,22 @@ class RunningGateway {
   std::uint16_t port() const { return gateway_.port(); }
 
  private:
-  Gateway gateway_{GatewayOptions{.port = 0}};
+  Gateway gateway_;
   std::thread thread_;
 };
 
-// A blocking client with a 10-second receive timeout, so a missing answer fails the test instead of hanging it.
+// A blocking client with a 10-second receive timeout, so a missing answer fails the test instead of hanging it. A
+// write to a gateway that has closed fails the test rather than killing it with SIGPIPE. `receive_buffer`, if set,
+// is the socket's receive buffer, set before connecting (a client that reads slowly).
 class Client {
  public:
-  explicit Client(std::uint16_t port) {
+  explicit Client(std::uint16_t port, int receive_buffer = 0) {
     fd_ = ::socket(AF_INET, SOCK_STREAM, 0);
+    if (receive_buffer > 0) ::setsockopt(fd_, SOL_SOCKET, SO_RCVBUF, &receive_buffer, sizeof receive_buffer);
+#ifdef SO_NOSIGPIPE
+    const int no_sigpipe = 1;
+    ::setsockopt(fd_, SOL_SOCKET, SO_NOSIGPIPE, &no_sigpipe, sizeof no_sigpipe);
+#endif
     sockaddr_in address{};
     address.sin_family = AF_INET;
     address.sin_port = static_cast<std::uint16_t>((port >> 8) | (port << 8));  // network order on these hosts
@@ -70,13 +80,18 @@ class Client {
   ~Client() { close(); }
 
   void send(std::string_view text) {
+#ifdef MSG_NOSIGNAL
+    constexpr int kFlags = MSG_NOSIGNAL;
+#else
+    constexpr int kFlags = 0;
+#endif
     while (!text.empty()) {
-      const ssize_t n = ::send(fd_, text.data(), text.size(), 0);
+      const ssize_t n = ::send(fd_, text.data(), text.size(), kFlags);
       ASSERT_GT(n, 0) << "send failed";
       text.remove_prefix(static_cast<std::size_t>(n));
     }
   }
-  // The next line, or "<eof>" when the gateway has closed the connection, or "<timeout>".
+  // The next line, or "<eof>" when the gateway has closed the connection, "<timeout>", or "<error>" (a reset).
   std::string line() {
     for (;;) {
       const std::size_t end = buffer_.find('\n');
@@ -88,13 +103,16 @@ class Client {
       char chunk[4096];
       const ssize_t n = ::recv(fd_, chunk, sizeof chunk, 0);
       if (n == 0) return "<eof>";
-      if (n < 0) return "<timeout>";
+      if (n < 0) return errno == EAGAIN || errno == EWOULDBLOCK ? "<timeout>" : "<error>";
       buffer_.append(chunk, static_cast<std::size_t>(n));
     }
   }
   Lines lines(std::size_t count) {
     Lines out;
-    for (std::size_t i = 0; i < count; ++i) out.push_back(line());
+    for (std::size_t i = 0; i < count; ++i) {
+      out.push_back(line());
+      if (out.back() == "<timeout>") break;  // don't wait out the timeout once per missing line
+    }
     return out;
   }
   Lines ask(std::string_view text, std::size_t answers) {
@@ -102,6 +120,14 @@ class Client {
     return lines(answers);
   }
   void close_write() { ::shutdown(fd_, SHUT_WR); }
+  // Closes with a reset (RST) rather than an orderly end: SO_LINGER with a time of 0.
+  void reset() {
+    linger abort{};
+    abort.l_onoff = 1;
+    abort.l_linger = 0;
+    ::setsockopt(fd_, SOL_SOCKET, SO_LINGER, &abort, sizeof abort);
+    close();
+  }
   void close() {
     if (fd_ >= 0) ::close(fd_);
     fd_ = -1;
@@ -255,6 +281,75 @@ TEST(Gateway, BlankLinesAndCarriageReturnsAreIgnored) {
   Client client(gateway.port());
   EXPECT_EQ(client.ask("\n  \n\t\nnew 1 buy limit 2 @ 100\r\nbook\r\n", 2),
             (Lines{"accepted 1", "snapshot 1 bids 100x2 asks -"}));
+}
+
+// Each order the gateway is done with is forgotten (route and live id): a filled maker, a cancelled order, an IOC's
+// remainder, a rejected order, a limit order filled as it arrived. So a disconnect sends exactly one cancel here, for
+// the one order still resting; a leaked route would send more (each a command, so the snapshot's sequence shows it).
+TEST(Gateway, ADisconnectCancelsOnlyTheOrdersStillLive) {
+  RunningGateway gateway;
+  Client watcher(gateway.port());
+  Client other(gateway.port());
+  {
+    Client client(gateway.port());
+    EXPECT_EQ(client.ask("new 1 sell limit 5 @ 101\n", 1), (Lines{"accepted 1"}));                 // 1
+    EXPECT_EQ(other.ask("new 1 buy ioc 5 @ 101\n", 2), (Lines{"accepted 1", "fill 1 5 @ 101"}));  // 2
+    EXPECT_EQ(client.lines(1), (Lines{"fill 1 5 @ 101"}));  // a maker filled
+    EXPECT_EQ(client.ask("new 2 sell limit 5 @ 102\ncancel 2\n", 2),
+              (Lines{"accepted 2", "cancelled 2 5 requested"}));                                         // 3, 4
+    EXPECT_EQ(client.ask("new 3 buy limit 5 @ 99\n", 1), (Lines{"accepted 3"}));                     // 5: stays live
+    EXPECT_EQ(client.ask("new 4 buy ioc 5 @ 90\n", 2), (Lines{"accepted 4", "cancelled 4 5 unfilled"}));  // 6
+    EXPECT_EQ(client.ask("new 5 buy limit 0 @ 99\n", 1), (Lines{"rejected 5 invalid-quantity"}));    // 7
+    EXPECT_EQ(other.ask("new 2 sell limit 3 @ 105\n", 1), (Lines{"accepted 2"}));                    // 8
+    EXPECT_EQ(client.ask("new 6 buy limit 3 @ 105\n", 2), (Lines{"accepted 6", "fill 6 3 @ 105"}));  // 9
+    EXPECT_EQ(other.lines(1), (Lines{"fill 2 3 @ 105"}));
+  }  // closed: one cancel, command 10
+  EXPECT_EQ(book_becomes(watcher, "bids - asks -"), "snapshot 10 bids - asks -");
+  std::this_thread::sleep_for(std::chrono::milliseconds(100));  // any further cancels would be answered by now
+  EXPECT_EQ(watcher.ask("book\n", 1), (Lines{"snapshot 10 bids - asks -"}));
+}
+
+TEST(Gateway, AConnectionResetEndsTheSessionAndCancelsItsOrders) {
+  RunningGateway gateway;
+  Client watcher(gateway.port());
+  Client client(gateway.port());
+  EXPECT_EQ(client.ask("new 1 sell limit 5 @ 101\n", 1), (Lines{"accepted 1"}));
+  client.reset();
+  EXPECT_EQ(book_becomes(watcher, "bids - asks -"), "snapshot 2 bids - asks -");
+}
+
+TEST(Gateway, MoreLinesThanATurnInOneReadAreAllAnswered) {
+  RunningGateway gateway;
+  Client client(gateway.port());
+  std::string many;
+  for (int i = 0; i < 1'000; ++i) many += "book 1\n";  // answered by the gateway itself: nothing in the engine
+  const Lines answers = client.ask(many, 1'000);
+  ASSERT_EQ(answers.size(), 1'000U);
+  EXPECT_EQ(answers.back(), "snapshot 0 bids - asks -");
+  // And with the client's side closed after them: the session ends only once all are answered.
+  Client closing(gateway.port());
+  closing.send(many);
+  closing.close_write();
+  const Lines all = closing.lines(1'001);
+  ASSERT_EQ(all.size(), 1'001U);
+  EXPECT_EQ(all[999], "snapshot 0 bids - asks -");
+  EXPECT_EQ(all[1'000], "<eof>");
+}
+
+TEST(Gateway, AClientThatDoesntReadItsAnswersIsDropped) {
+  GatewayOptions options{.port = 0};
+  options.max_unsent_output = 64 << 10;
+  RunningGateway gateway(options);
+  Client slow(gateway.port(), /*receive_buffer=*/4'096);
+  std::string many;
+  for (int i = 0; i < 40'000; ++i) many += "book\n";  // a megabyte of answers it won't read for now
+  slow.send(many);
+  std::this_thread::sleep_for(std::chrono::milliseconds(300));
+  std::size_t answers = 0;
+  std::string last;
+  while ((last = slow.line()).starts_with("snapshot")) ++answers;
+  EXPECT_TRUE(last == "<eof>" || last == "<error>") << last;  // dropped, not merely slow
+  EXPECT_LT(answers, 40'000U);
 }
 
 // The answers a client should get for its commands, from a book applied directly: with one session sending the ids

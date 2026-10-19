@@ -153,6 +153,34 @@ TEST(DepthFeed, EventsThatDontFitItsRecordThrow) {
   EXPECT_THROW(feed.apply(CancelOrder{OrderId{1}},
                           std::vector<Event>{Cancelled{OrderId{1}, Quantity{6}, CancelReason::Requested}}, updates),
                std::logic_error);
+  // A trade naming another order as the taker.
+  EXPECT_THROW(feed.apply(NewOrder{OrderId{5}, Side::Buy, OrderType::Limit, Quantity{5}, Price{101}},
+                          std::vector<Event>{Accepted{OrderId{5}}, Trade{OrderId{9}, OrderId{1}, Quantity{1}, Price{101}}},
+                          updates),
+               std::logic_error);
+  // A trade for more than the maker has left (the taker has room for it).
+  EXPECT_THROW(feed.apply(NewOrder{OrderId{6}, Side::Buy, OrderType::Limit, Quantity{10}, Price{101}},
+                          std::vector<Event>{Accepted{OrderId{6}}, Trade{OrderId{6}, OrderId{1}, Quantity{6}, Price{101}}},
+                          updates),
+               std::logic_error);
+  // A trade with a maker on the taker's own side.
+  EXPECT_THROW(feed.apply(NewOrder{OrderId{7}, Side::Sell, OrderType::Limit, Quantity{5}, Price{101}},
+                          std::vector<Event>{Accepted{OrderId{7}}, Trade{OrderId{7}, OrderId{1}, Quantity{1}, Price{101}}},
+                          updates),
+               std::logic_error);
+  // A cancellation of less than is left, and one of another order than the cancel names.
+  EXPECT_THROW(feed.apply(CancelOrder{OrderId{1}},
+                          std::vector<Event>{Cancelled{OrderId{1}, Quantity{4}, CancelReason::Requested}}, updates),
+               std::logic_error);
+  EXPECT_THROW(feed.apply(CancelOrder{OrderId{1}},
+                          std::vector<Event>{Cancelled{OrderId{2}, Quantity{5}, CancelReason::Requested}}, updates),
+               std::logic_error);
+  // Each check comes before any change, so order 1 is still there, whole, and can be cancelled. (The header promises
+  // less: after a throw, the feed isn't to be used.)
+  updates.clear();
+  feed.apply(CancelOrder{OrderId{1}}, std::vector<Event>{Cancelled{OrderId{1}, Quantity{5}, CancelReason::Requested}},
+             updates);
+  EXPECT_EQ(updates, (std::vector<LevelUpdate>{{Side::Sell, Price{101}, Quantity{0}}}));
   // No events at all for a new order.
   EXPECT_THROW(feed.apply(NewOrder{OrderId{4}, Side::Buy, OrderType::Limit, Quantity{1}, Price{1}},
                           std::vector<Event>{}, updates),
