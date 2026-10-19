@@ -1,13 +1,10 @@
-1 level sell 100x2
-2 level sell 101x2
-3 level sell 102x2
+update 1 sell 100x2
+update 2 sell 101x2
+update 3 sell 102x2
 snapshot 3 bids - asks 100x2 101x2
-4 level sell 104x2
-5 level buy 98x1
-6 level sell 100x0
-6 level sell 101x0
-6 level sell 102x0
-6 level buy 102x3
+update 4 sell 104x2
+update 5 buy 98x1
+update 6 sell 100x0 sell 101x0 sell 102x0 buy 102x3
 snapshot 6 bids 102x3 98x1 asks 104x2
-7 level sell 104x0
+update 7 sell 104x0
 snapshot 7 bids 102x3 98x1 asks -

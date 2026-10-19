@@ -30,6 +30,16 @@ std::string format(const LevelUpdate& update) {
          std::to_string(update.total.lots);
 }
 
+std::string format_updates(std::uint64_t sequence, std::span<const LevelUpdate> updates) {
+  std::string line = "update " + std::to_string(sequence);
+  for (const LevelUpdate& update : updates) {
+    line += " ";
+    line += to_string(update.side);
+    line += " " + std::to_string(update.price.ticks) + "x" + std::to_string(update.total.lots);
+  }
+  return line;
+}
+
 std::string format(const L2Snapshot& snapshot) {
   return "snapshot " + std::to_string(snapshot.sequence) + " bids " + side_text(snapshot.bids) + " asks " +
          side_text(snapshot.asks);

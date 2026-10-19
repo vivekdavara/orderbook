@@ -53,9 +53,12 @@ struct L2Snapshot {
 inline constexpr std::size_t kAllLevels = std::numeric_limits<std::size_t>::max();
 
 // "level buy 101x10" (a level's new total; "x0" when it is gone) and "snapshot 7 bids 101x10 100x5 asks 102x7"
-// (with "-" for an empty side): the text forms, which `orderbook replay` and the gateway print.
+// (with "-" for an empty side): the text forms. `format_updates` is one command's updates on a line, "update 8 sell
+// 101x0 buy 101x3", or "update 8" when it changed no level: what `orderbook replay --updates` prints and the gateway
+// sends its subscribers, a line for every command, so a missing one shows as a gap in the sequence.
 std::string format(const LevelUpdate& update);
 std::string format(const L2Snapshot& snapshot);
+std::string format_updates(std::uint64_t sequence, std::span<const LevelUpdate> updates);
 
 // One side's levels and their totals, best first: bids highest first, asks lowest first.
 class LevelTotals {

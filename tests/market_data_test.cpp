@@ -108,6 +108,12 @@ TEST(DepthFeed, RejectionsChangeNoLevelButTakeASequenceNumber) {
   EXPECT_EQ(format(f.feed.snapshot(kAllLevels)), "snapshot 4 bids 100x10 asks -");
 }
 
+TEST(DepthFeed, ACommandsUpdatesAreOneLineAndOneWithNoneIsJustItsNumber) {
+  const std::vector<LevelUpdate> updates{{Side::Sell, Price{101}, Quantity{0}}, {Side::Buy, Price{101}, Quantity{3}}};
+  EXPECT_EQ(format_updates(8, updates), "update 8 sell 101x0 buy 101x3");
+  EXPECT_EQ(format_updates(9, std::vector<LevelUpdate>{}), "update 9");
+}
+
 TEST(DepthFeed, ASnapshotHasUpToTheLevelsAskedForBestFirst) {
   Followed f;
   for (const std::string_view line : {"new 1 buy limit 1 @ 98", "new 2 buy limit 2 @ 100", "new 3 buy limit 3 @ 99",

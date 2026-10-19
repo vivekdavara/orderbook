@@ -10,7 +10,7 @@
 //                                                replay commands (from FILE or stdin) through a book and the depth
 //                                                feed built from its events; print an L2 snapshot (K levels a side,
 //                                                10 by default) every N commands (1,000) and at the end, and with
-//                                                --updates each command's level updates
+//                                                --updates a line of each command's level updates
 //
 // B is `engine` (the default) or `reference`. The options: --target N, --range N, --max-quantity N, --invalid
 // PER_MILLE (RandomFlow's options). `orderbook gen 1 20 | orderbook run` prints what the engine does with a stream;
@@ -247,9 +247,7 @@ int replay(std::istream& in, const ReplayArgs& args) {
     trades += static_cast<std::uint64_t>(
         std::count_if(events.begin(), events.end(), [](const Event& e) { return std::holds_alternative<Trade>(e); }));
     changes += updates.size();
-    if (args.updates) {
-      for (const LevelUpdate& update : updates) std::cout << sequence << " " << format(update) << "\n";
-    }
+    if (args.updates) std::cout << format_updates(sequence, updates) << "\n";
     if (sequence % args.every == 0 && !snapshot()) return 1;
   }
   if ((feed.sequence() == 0 || feed.sequence() % args.every != 0) && !snapshot()) return 1;
