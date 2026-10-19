@@ -30,10 +30,12 @@ if(ORDERBOOK_FUZZ)
   add_compile_options(-fsanitize=fuzzer-no-link)
 endif()
 
-# The engine: the book itself, its thread and rings, its vocabulary types and their text form.
+# The engine: the book itself, its thread and rings, its vocabulary types and their text form, and the market data
+# built from its events.
 add_library(orderbook
   src/book.cpp
   src/engine_thread.cpp
+  src/market_data.cpp
   src/text.cpp
   src/types.cpp)
 add_library(orderbook::orderbook ALIAS orderbook)

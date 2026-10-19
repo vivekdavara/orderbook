@@ -8,6 +8,7 @@ add_executable(orderbook_tests
   differential_test.cpp
   engine_thread_test.cpp
   id_table_test.cpp
+  market_data_test.cpp
   minimize_test.cpp
   random_flow_test.cpp
   review/audit_accepts_zero_quantity_trade_test.cpp
