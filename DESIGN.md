@@ -347,8 +347,8 @@ flowchart LR
   single sender `EngineThread` asks for. While commands are in the engine it polls without waiting and comes back for
   the reports; when none are, it blocks in `poll` until a socket, or `stop()`'s pipe, wakes it.
 - **A text protocol**, a line each way per message: `new` and `cancel` in the text format of the scenario files (the
-  parser fuzzed since day 1), and `book [levels]`; the answers are `accepted`, `rejected`, `fill`, `cancelled`,
-  `snapshot` and `error`. It can be driven by hand with `nc`.
+  parser fuzzed since day 1), `book [levels]` and `subscribe`; the answers are `accepted`, `rejected`, `fill`,
+  `cancelled`, `snapshot`, `update` and `error`. It can be driven by hand with `nc`.
 - **Ids.** Each client names its orders with its own ids. A session's new orders must have increasing ids, for the
   engine's reason (no duplicate or reused id without remembering every one), checked at the gateway; unlike the
   engine, the gateway uses up an id the engine rejects. Each order gets the engine's next id, so the engine's ids
@@ -360,9 +360,15 @@ flowchart LR
   error) are held until the session's commands before them are answered, then written: every answer comes in line
   order. A held snapshot is taken when written, after the commands before it. A resting order's `fill` comes when the
   trade happens.
+- **Market data over the session.** `book [levels]` answers with the depth feed's snapshot (in line order, so after
+  the session's earlier commands). `subscribe` answers with a snapshot of every level at the feed's sequence N and
+  marks the session when that snapshot is written; from then on, after every command the engine answers, each
+  subscriber gets that command's `update` line, so the snapshot and the updates join with neither a gap nor an
+  overlap. A cancel the gateway answers itself never reaches the engine and has no sequence number.
 - **Sessions end** when the client closes its side and every answer is written (a client may half-close and still
-  read), or at once on a socket error, a line over 256 bytes, or 4 MiB of answers it doesn't read. Its live orders are
-  then cancelled: cancel on disconnect, by the gateway's own commands, whose answers go nowhere.
+  read); after a line over 256 bytes (not counting its `\r\n`), once the answers before it and its `error` are
+  written, nothing after the line being read; and at once on a socket error or 4 MiB of answers it doesn't read. Its
+  live orders are then cancelled: cancel on disconnect, by the gateway's own commands, whose answers go nowhere.
 - **Back-pressure.** A full request ring stops the reading of lines until the engine takes some; the gateway drains
   the reports every turn, so the engine never waits on it for long. A client with 1 MiB of input read but not handled
   isn't read until it is, so its sends back up into TCP. A session handles at most 256 lines a turn.
@@ -370,8 +376,8 @@ flowchart LR
   main thread, after resetting their dispositions: an ignored signal is discarded, not left pending, and a
   non-interactive shell starts `&` jobs with SIGINT ignored (the end-to-end test found this).
 - **Not done.** Authentication and TLS (it listens on loopback by default), a binary protocol, rate limits per
-  session, market data pushed to subscribers (the gateway answers `book` on request; `L2Book` is the subscriber side),
-  self-trade prevention, IPv6.
+  session, market data over UDP multicast (where the subscriber's gap check would matter), self-trade prevention,
+  IPv6.
 
 ## Testing
 
@@ -427,8 +433,9 @@ flowchart LR
 - **The gateway** (day 4). `tests/gateway_test.cpp` drives a gateway on a free port over real TCP connections: the id
   rules, fills to both sides, answers in line order with the gateway's own among them, snapshots, cancel on
   disconnect, half-close, long lines, and 20,000 random commands from one client answered line for line as the engine
-  answers them directly. `scripts/gateway_smoke.sh` runs the executable under the load generator and stops it with
-  SIGINT. `make tsan` runs the gateway's tests too.
+  answers them directly; a subscriber's book, from its snapshot and every update line, equals the gateway's after
+  5,000 more. `scripts/gateway_smoke.sh` runs the executable under the load generator and stops it with SIGINT.
+  `make tsan` runs the gateway's tests too.
 - **Benchmarks** (Google Benchmark): commands per second for the three books on the same commands against the same
   book (the reference model and day 2's engine are the baselines). **Latency percentiles** (`make latency`,
   `bench/latency.cpp`): each command timed alone in one thread, and the engine's thread timed from the sender's side,

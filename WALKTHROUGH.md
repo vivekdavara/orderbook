@@ -1,8 +1,8 @@
 # Walkthrough
 
 Questions an interviewer is likely to ask about this project, with short answers grounded in the code. Day 1 covers
-the specification, the reference model and the test kit; day 2 the engine and the differential tests; later days add
-the fast engine, the gateway and the measurements.
+the specification, the reference model and the test kit; day 2 the engine and the differential tests; day 3 the fast
+engine and its thread; day 4 the TCP gateway and the market data; day 5 adds the release.
 
 Reading order for day 1: DESIGN.md ("Validation", "Matching", "Events", "Invariants"), then
 `src/reference_book.cpp` (one screen), a scenario file such as `tests/scenarios/03_time_priority.txt`, then
@@ -16,6 +16,12 @@ Reading order for day 3: DESIGN.md "The engine" and "Threads (day 3)", then `src
 `cancel`, `allocate`, `release`, the moves), `include/orderbook/id_table.hpp` (`find`, `take`), `include/orderbook/
 spsc_ring.hpp` (`try_push`, `try_pop`), `src/engine_thread.cpp` (`run`), then `tests/allocation_test.cpp` and
 `bench/latency.cpp` (`paced`).
+
+Reading order for day 4: DESIGN.md "Market data (day 4)" and "The gateway (day 4)", then `src/market_data.cpp`
+(`DepthFeed::apply`, `follow_new_order`, `take`; `L2Book::apply`), `include/orderbook/gateway.hpp` (the protocol),
+`src/gateway.cpp` (`run`, `handle_lines`, `handle_line`, `handle_report`, `command_answered`, `flush_held`,
+`end_sessions`), `tools/gateway_main.cpp` (the signals), then `tests/gateway_test.cpp` and `bench/loadgen.cpp`
+(`drive`).
 
 ## The project
 
@@ -249,6 +255,90 @@ If applying a command throws, the book is well-formed, but that command was cut 
 rest doesn't, with no event saying so. An engine that keeps matching after that has clients holding a wrong picture of
 their orders. So the exception leaves the thread and the process terminates (fail-stop); within its room the engine
 allocates nothing, so it can only happen past the room a deployment chose.
+
+## The gateway and market data (day 4)
+
+**How does an order get from a client to the book and back?**
+The client writes a line, `new 7 sell limit 10 @ 101`, on a TCP connection to port 8107. The gateway's thread reads it
+(`poll`, then `recv`), parses it with the scenario files' parser, checks the session's id rule, gives the order the
+engine's next id (say 42), records the route (42 belongs to this session as 7) and pushes `Request{sequence, new 42
+...}` into the engine's ring. The engine's thread pops it, applies it to the book and pushes each event as a `Report`,
+the last one flagged. The gateway pops those, turns each into the client's line (`accepted 7`, `fill 7 4 @ 101`),
+follows the command in the depth feed, and writes the lines to the socket. Two threads, two rings, no locks.
+
+**Why does the gateway assign the engine's ids instead of using the client's?**
+The engine needs ids that increase across everyone (that is how it rejects a duplicate with one comparison), and
+clients don't coordinate. So each client keeps its own ids, which must increase within its session (the same rule,
+checked by the gateway), and the gateway maps them to one increasing sequence. It is also what keeps one client's ids
+from colliding with another's, and from leaking: a trade is sent as a `fill` to each side under that side's own id.
+
+**How do you keep a session's answers in order when the gateway answers some lines itself?**
+The engine answers commands in the order they were sent, so its answers for a session already come in line order.
+The gateway's own answers (`rejected 9 unknown-order` for an id it doesn't know, a `book` snapshot, an `error`) would
+jump the queue if written at once, so they are held: each records how many of the session's commands were in the
+engine when it was made (`Held::after`) and is written once that many have been answered (`flush_held`, called from
+`command_answered`). A held snapshot is taken when it is written, so it includes the commands before it. The review
+found the one answer that skipped this, the long-line error.
+
+**What happens when a client disconnects with orders resting?**
+They are cancelled. When a session ends (it closed its side and everything is written, or a socket error, or it
+stopped reading), `end_session` queues a cancel for each order still live, and the loop sends them as the gateway's
+own commands, whose answers go nowhere. The review found that the loop could fall asleep right after queueing them:
+`busy` had been worked out before. A test now checks that a disconnect sends exactly one cancel per live order and no
+more, by the snapshot's sequence number, which also catches any route the gateway forgot to forget.
+
+**What happens when the engine's ring fills, or a client stops reading?**
+A full request ring stops the handling of lines (the gateway keeps draining the reports, so the engine never waits
+on it for long) and the loop comes back without sleeping. A client whose unhandled input passes 1 MiB isn't read, so
+its sends back up into TCP. A client that doesn't read its answers is dropped once 4 MiB of them are waiting in the
+gateway; its test had to send until the connection broke, because how much the kernels buffer on the way differs (a
+megabyte on Linux, tens of megabytes here).
+
+**Why one thread with poll instead of a thread per connection?**
+The engine's thread takes exactly one sender (single-producer ring), and one thread owning every session means no
+shared state in the gateway at all. Its cost is that one slow step (a big snapshot) delays every session; a session
+handles at most 256 lines a turn so one client can't starve the others.
+
+**How is the L2 feed built, and how do you know it's right?**
+From each command and its events, not from the engine: `DepthFeed` keeps its own record of resting orders and level
+totals. An accepted limit order's remainder rests at its price; a trade takes from the maker at the maker's price; a
+cancellation takes what was left. Each command's changed levels are listed once (a taker never returns to a level, so
+comparing with the last one is enough). It's checked three ways: after every command of 110,000 random commands, the
+feed's levels and a subscriber's equal the book's depth; events that don't fit its record throw (the tool built
+around the test kit's deliberately broken price-bug book fails `replay` at the command `diff` finds); and through the gateway, a subscriber's
+book equals the gateway's snapshot after 5,000 random commands.
+
+**What's a sequence gap and how does a subscriber recover?**
+Every command the engine answers gets the feed's next number, and a subscriber gets an `update` line for each, even
+one that changed nothing (`update 9`). `L2Book::apply` accepts only the number after the last one it applied; a gap
+or a repeat is refused, and the subscriber starts again from a fresh snapshot, which carries its sequence number:
+the snapshot-and-recovery pattern of exchange feeds. Over one TCP connection nothing is lost, so this matters for
+joining (`subscribe` sends the snapshot, then the updates after its number) and would matter over UDP.
+
+**How did you measure the gateway, and what did you find?**
+`orderbook_loadgen` times each command from when it was due to its acknowledgement, over TCP: one at a time 23 to 28
+µs at the median, almost all of it sockets (the engine's thread alone answers in 166 ns); batched, 2.70 to 2.74 million
+commands a second. Paced one write a command, the median stays near 30 µs at every rate, but from 100,000 a second the
+p99 is in milliseconds and grows with the rate. The sender wasn't late, so commands waited after leaving it: some stall
+of milliseconds on the path, which the timing charges to every command due during it. I haven't traced it; the first
+suspects are one of three spinning threads being descheduled and the gateway's thread waking from `poll`.
+
+**What does the market data cost?**
+About 50 ns a command (`BM_EngineAndDepthFeed` against `BM_Engine`): three to five times the engine itself, because
+the feed uses a hash map and two sorted maps. It runs on the gateway's thread, next to a parse and socket calls that
+cost far more, so it isn't worth the engine's tricks yet; if it were, the engine's own level vectors are the model.
+
+**Tell me about a bug you found today.**
+The gateway executable never stopped on SIGINT in its end-to-end test. It blocks SIGINT and SIGTERM and waits for
+them with `sigwait`; but a non-interactive shell starts `&` jobs with SIGINT *ignored*, and an ignored signal is
+discarded, never left pending, so `sigwait` never returned and the test hung until CTest's timeout. The fix resets
+both dispositions to the default before blocking them. Another: CI's GCC 14 on Linux flagged `errno == EAGAIN ||
+errno == EWOULDBLOCK` (they are equal there, and glibc's `errno` is a const function GCC can compare), which GCC on
+macOS can't see.
+
+**What would you do next with the gateway?**
+Trace the paced tail (where the milliseconds go), then a binary protocol and a batched write per turn per session,
+pinning on Linux, and pushing market data over UDP multicast with the gap recovery the subscriber already has.
 
 ## Testing
 
