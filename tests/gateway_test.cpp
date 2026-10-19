@@ -121,6 +121,14 @@ class Client {
     send(text);
     return lines(answers);
   }
+  // One send, without failing the test: false once the gateway has closed the connection.
+  bool try_send(std::string_view text) {
+#ifdef MSG_NOSIGNAL
+    return ::send(fd_, text.data(), text.size(), MSG_NOSIGNAL) > 0;
+#else
+    return ::send(fd_, text.data(), text.size(), 0) > 0;
+#endif
+  }
   void close_write() { ::shutdown(fd_, SHUT_WR); }
   // Closes with a reset (RST) rather than an orderly end: SO_LINGER with a time of 0.
   void reset() {
@@ -338,20 +346,33 @@ TEST(Gateway, MoreLinesThanATurnInOneReadAreAllAnswered) {
   EXPECT_EQ(all[1'000], "<eof>");
 }
 
+// It asks for a book of 1,000 levels (about 7 KB an answer for 10 bytes sent) and never reads the answers. How much
+// the kernels buffer on the way differs (on Linux a megabyte of answers was absorbed, on macOS tens of megabytes), so
+// it asks 6,400 times (some 45 MB of answers), then sends a little every 10 ms until the connection breaks, for up to
+// 10 s.
 TEST(Gateway, AClientThatDoesntReadItsAnswersIsDropped) {
   GatewayOptions options{.port = 0};
   options.max_unsent_output = 64 << 10;
   RunningGateway gateway(options);
+  Client trader(gateway.port());
+  std::string orders;
+  for (int i = 1; i <= 1'000; ++i) orders += "new " + std::to_string(i) + " buy limit 1 @ " + std::to_string(1'000 + i) + "\n";
+  trader.send(orders);
+  ASSERT_EQ(trader.lines(1'000).back(), "accepted 1000");
   Client slow(gateway.port(), /*receive_buffer=*/4'096);
-  std::string many;
-  for (int i = 0; i < 40'000; ++i) many += "book\n";  // a megabyte of answers it won't read for now
-  slow.send(many);
-  std::this_thread::sleep_for(std::chrono::milliseconds(300));
-  std::size_t answers = 0;
+  std::string requests;
+  for (int i = 0; i < 6'400; ++i) requests += "book 1000\n";
+  bool dropped = !slow.try_send(requests);
+  const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+  while (!dropped && std::chrono::steady_clock::now() < deadline) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    dropped = !slow.try_send("book 1000\n");
+  }
+  ASSERT_TRUE(dropped) << "still connected after 10 s";
   std::string last;
-  while ((last = slow.line()).starts_with("snapshot")) ++answers;
+  while ((last = slow.line()).starts_with("snapshot")) {
+  }
   EXPECT_TRUE(last == "<eof>" || last == "<error>") << last;  // dropped, not merely slow
-  EXPECT_LT(answers, 40'000U);
 }
 
 // "snapshot 2 bids 99x3 asks 101x5" back into a snapshot ("-" for an empty side).
