@@ -6,16 +6,24 @@
 //   orderbook [--book B] audit SEED COUNT [opts] run a random stream with every invariant check on; print a summary
 //   orderbook diff SEED COUNT [opts] [--every N] run a random stream through the reference model and the engine,
 //                                                comparing every event, and their states every N commands (1,000)
+//   orderbook [--book B] replay [FILE] [--every N] [--levels K] [--updates]
+//                                                replay commands (from FILE or stdin) through a book and the depth
+//                                                feed built from its events; print an L2 snapshot (K levels a side,
+//                                                10 by default) every N commands (1,000) and at the end, and with
+//                                                --updates each command's level updates
 //
 // B is `engine` (the default) or `reference`. The options: --target N, --range N, --max-quantity N, --invalid
 // PER_MILLE (RandomFlow's options). `orderbook gen 1 20 | orderbook run` prints what the engine does with a stream;
 // the transcript is itself a scenario file, so `orderbook check` passes it, on either book. When diff finds a
 // difference it prints the shrunk commands as a scenario file and exits 1: `orderbook check` of that file fails on
-// the engine and passes on the reference model.
+// the engine and passes on the reference model. `orderbook gen 1 1000000 | orderbook replay --every 100000` replays a
+// synthetic stream; each snapshot is checked against the book's own depth, and its timing goes to stderr, so the
+// output is the same on every book and every run.
 
 #include <algorithm>
 #include <array>
 #include <charconv>
+#include <chrono>
 #include <cstdint>
 #include <cstdio>
 #include <fstream>
@@ -32,6 +40,7 @@
 #include "orderbook/book.hpp"
 #include "orderbook/check.hpp"
 #include "orderbook/differential.hpp"
+#include "orderbook/market_data.hpp"
 #include "orderbook/random_flow.hpp"
 #include "orderbook/reference_book.hpp"
 #include "orderbook/scenario.hpp"
@@ -61,7 +70,8 @@ int usage() {
                "       orderbook [--book engine|reference] run [FILE]\n"
                "       orderbook gen SEED COUNT [--target N] [--range N] [--max-quantity N] [--invalid PER_MILLE]\n"
                "       orderbook [--book engine|reference] audit SEED COUNT [same options as gen]\n"
-               "       orderbook diff SEED COUNT [same options as gen] [--every N]\n";
+               "       orderbook diff SEED COUNT [same options as gen] [--every N]\n"
+               "       orderbook [--book engine|reference] replay [FILE] [--every N] [--levels K] [--updates]\n";
   return kUsageError;
 }
 
@@ -113,6 +123,16 @@ int check(const std::vector<std::string>& files) {
   return failed == 0 ? 0 : 1;
 }
 
+// A line of commands for run or replay, trimmed and without the "> " that gen prints; empty for a blank line or a
+// comment.
+std::string_view command_text(std::string_view text) {
+  while (!text.empty() && (text.front() == ' ' || text.front() == '\t')) text.remove_prefix(1);
+  while (!text.empty() && (text.back() == ' ' || text.back() == '\t' || text.back() == '\r')) text.remove_suffix(1);
+  if (text.empty() || text.front() == '#') return {};
+  if (text.front() == '>') text.remove_prefix(1);
+  return text;
+}
+
 template <typename AnyBook>
 int run(std::istream& in) {
   AnyBook book;
@@ -122,11 +142,8 @@ int run(std::istream& in) {
   int commands = 0;
   while (std::getline(in, line)) {
     ++number;
-    std::string_view text = line;
-    while (!text.empty() && (text.front() == ' ' || text.front() == '\t')) text.remove_prefix(1);
-    while (!text.empty() && (text.back() == ' ' || text.back() == '\t' || text.back() == '\r')) text.remove_suffix(1);
-    if (text.empty() || text.front() == '#') continue;
-    if (text.front() == '>') text.remove_prefix(1);
+    const std::string_view text = command_text(line);
+    if (text.empty()) continue;
     std::string error;
     const auto command = parse_command(text, &error);
     if (!command) {
@@ -142,6 +159,104 @@ int run(std::istream& in) {
   // A scenario file's depth and state checks belong to a command, so with no commands there is nothing to print: an
   // empty transcript is an empty scenario file, which check passes.
   if (commands > 0) std::cout << state_lines(book);
+  return 0;
+}
+
+struct ReplayArgs {
+  std::optional<std::string> file;
+  std::uint64_t every = 1'000;
+  std::size_t levels = 10;
+  bool updates = false;
+};
+
+std::optional<ReplayArgs> parse_replay_args(const std::vector<std::string>& args) {
+  ReplayArgs parsed;
+  for (std::size_t i = 0; i < args.size(); ++i) {
+    const std::string& arg = args[i];
+    if (arg == "--updates") {
+      parsed.updates = true;
+    } else if (arg == "--every" || arg == "--levels") {
+      if (i + 1 >= args.size()) return std::nullopt;
+      const auto value = to_int<std::uint64_t>(args[++i]);
+      if (!value || *value == 0) return std::nullopt;
+      if (arg == "--every") {
+        parsed.every = *value;
+      } else {
+        parsed.levels = static_cast<std::size_t>(std::min<std::uint64_t>(*value, 1'000'000'000));
+      }
+    } else if (!arg.starts_with("--") && !parsed.file) {
+      parsed.file = arg;
+    } else {
+      return std::nullopt;
+    }
+  }
+  return parsed;
+}
+
+// The commands through a book and the depth feed that follows its events. A snapshot is printed every --every
+// commands and after the last, each first checked against the book's own depth: a feed that disagrees with its book
+// (or events the feed can't follow) is an error, exit 1.
+template <typename AnyBook>
+int replay(std::istream& in, const ReplayArgs& args) {
+  AnyBook book;
+  DepthFeed feed;
+  std::vector<Event> events;
+  std::vector<LevelUpdate> updates;
+  std::uint64_t trades = 0;
+  std::uint64_t changes = 0;
+  std::uint64_t snapshots = 0;
+  const auto snapshot = [&]() {
+    const L2Snapshot top = feed.snapshot(args.levels);
+    for (const Side side : {Side::Buy, Side::Sell}) {
+      std::vector<Level> depth = book.depth(side);
+      if (depth.size() > args.levels) depth.resize(args.levels);
+      if (depth != (side == Side::Buy ? top.bids : top.asks)) {
+        std::cerr << "after command " << top.sequence << " the feed's " << to_string(side) << " levels are '"
+                  << format(side == Side::Buy ? top.bids : top.asks) << "' and the book's '" << format(depth)
+                  << "'\n";
+        return false;
+      }
+    }
+    std::cout << format(top) << "\n";
+    ++snapshots;
+    return true;
+  };
+  const auto start = std::chrono::steady_clock::now();
+  std::string line;
+  int number = 0;
+  while (std::getline(in, line)) {
+    ++number;
+    const std::string_view text = command_text(line);
+    if (text.empty()) continue;
+    std::string error;
+    const auto command = parse_command(text, &error);
+    if (!command) {
+      std::cerr << "line " << number << ": " << error << "\n";
+      return 1;
+    }
+    events.clear();
+    updates.clear();
+    book.apply(*command, events);
+    std::uint64_t sequence = 0;
+    try {
+      sequence = feed.apply(*command, events, updates);
+    } catch (const std::logic_error& error) {
+      std::cerr << "line " << number << ": " << error.what() << "\n";
+      return 1;
+    }
+    trades += static_cast<std::uint64_t>(
+        std::count_if(events.begin(), events.end(), [](const Event& e) { return std::holds_alternative<Trade>(e); }));
+    changes += updates.size();
+    if (args.updates) {
+      for (const LevelUpdate& update : updates) std::cout << sequence << " " << format(update) << "\n";
+    }
+    if (sequence % args.every == 0 && !snapshot()) return 1;
+  }
+  if ((feed.sequence() == 0 || feed.sequence() % args.every != 0) && !snapshot()) return 1;
+  const double seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
+  std::cerr << "replayed " << feed.sequence() << " commands: " << trades << " trades, " << changes
+            << " level updates, " << snapshots << " snapshots; " << seconds << " s with parsing and output ("
+            << static_cast<double>(feed.sequence()) / seconds << " commands/s)\n";
   return 0;
 }
 
@@ -264,6 +379,17 @@ int main(int argc, char** argv) {
       return 1;
     }
     return engine ? run<Engine>(in) : run<ReferenceBook>(in);
+  }
+  if (verb == "replay") {
+    const auto replay_args = parse_replay_args(rest);
+    if (!replay_args) return usage();
+    if (!replay_args->file) return engine ? replay<Engine>(std::cin, *replay_args) : replay<ReferenceBook>(std::cin, *replay_args);
+    std::ifstream in(*replay_args->file);
+    if (!in) {
+      std::cerr << *replay_args->file << ": can't read it\n";
+      return 1;
+    }
+    return engine ? replay<Engine>(in, *replay_args) : replay<ReferenceBook>(in, *replay_args);
   }
   if (verb == "gen" || verb == "audit" || verb == "diff") {
     const auto flow_args = parse_flow_args(rest, verb == "diff");

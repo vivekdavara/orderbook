@@ -71,6 +71,19 @@ add_test(NAME cli.usage_is_printed_for_bad_arguments COMMAND orderbook_cli gen 1
 set_tests_properties(cli.usage_is_printed_for_bad_arguments PROPERTIES
   PASS_REGULAR_EXPRESSION "usage: orderbook .--book engine.reference. check FILE")
 
+# replay: a hand-worked stream gives exactly the expected updates and snapshots; a random stream gives the same
+# output on the engine and the reference model (the timing goes to stderr).
+add_test(NAME cli.replay_prints_each_commands_updates_and_the_snapshots
+  COMMAND sh -c "\"$1\" replay \"$2\" --every 3 --levels 2 --updates | diff - \"$3\"" sh
+          $<TARGET_FILE:orderbook_cli> ${CMAKE_CURRENT_SOURCE_DIR}/cli/replay.txt
+          ${CMAKE_CURRENT_SOURCE_DIR}/cli/replay_expected.txt)
+add_test(NAME cli.replay_is_the_same_on_both_books
+  COMMAND sh -c "\"$1\" gen 21 20000 --target 200 > \"$2.commands\" &&
+  \"$1\" replay \"$2.commands\" --every 500 --levels 5 --updates > \"$2.engine\" &&
+  \"$1\" --book reference replay \"$2.commands\" --every 500 --levels 5 --updates > \"$2.reference\" &&
+  cmp \"$2.engine\" \"$2.reference\" && test $(grep -c '^snapshot' \"$2.engine\") -eq 40" sh
+          $<TARGET_FILE:orderbook_cli> ${CMAKE_CURRENT_BINARY_DIR}/replay)
+
 # The tool built around a deliberately broken engine (the reference model reporting a trade a tick too high when its
 # maker has traded before; broken_books.hpp), to test the tool's own failure paths. diff must report the difference
 # and exit 1, and the scenario file it prints must pass on the reference model and fail on the broken engine, which is
@@ -131,6 +144,18 @@ add_test(NAME cli.broken_depth.diff_of_a_state_difference_exits_1
   COMMAND sh -c "\"$1\" diff 3 2000 --target 50 --every 1 > /dev/null 2>&1; test $? -eq 1" sh
           $<TARGET_FILE:orderbook_cli_broken_depth>)
 
+# replay checks the feed against the book it follows. The price bug's trades don't fit the feed's record of the
+# makers (a trade a tick away from the maker's price); the short depth is caught at the first snapshot that has a
+# third level.
+add_test(NAME cli.broken_engine.replay_fails_when_the_events_dont_fit_the_feed
+  COMMAND sh -c "\"$1\" gen 12 3000 --target 100 | \"$2\" replay > /dev/null 2> \"$3\"; test $? -eq 1 &&
+  grep -q 'the depth feed disagrees with the book' \"$3\"" sh
+          $<TARGET_FILE:orderbook_cli> $<TARGET_FILE:orderbook_cli_broken> ${CMAKE_CURRENT_BINARY_DIR}/broken_replay.err)
+add_test(NAME cli.broken_depth.replay_fails_when_the_books_depth_differs_from_the_feeds
+  COMMAND sh -c "\"$1\" gen 3 2000 --target 50 | \"$2\" replay --every 10 --levels 5 > /dev/null 2> \"$3\";
+  test $? -eq 1 && grep -q \"levels are '.*' and the book's\" \"$3\"" sh
+          $<TARGET_FILE:orderbook_cli> $<TARGET_FILE:orderbook_cli_broken_depth> ${CMAKE_CURRENT_BINARY_DIR}/short_replay.err)
+
 # The second day-1 review's reproductions of CLI bugs.
 include(${CMAKE_CURRENT_SOURCE_DIR}/review2/cli_tests.cmake)
 
@@ -153,3 +178,10 @@ cli_exit_test(cli.exit.a_book_without_a_name_is_2 2 --book)
 cli_exit_test(cli.exit.a_book_named_for_diff_is_2 2 --book engine diff 5 2000)
 cli_exit_test(cli.exit.every_outside_diff_is_2 2 gen 5 10 --every 5)
 cli_exit_test(cli.exit.every_of_0_is_2 2 diff 5 10 --every 0)
+cli_exit_test(cli.exit.a_replay_is_0 0 replay ${CMAKE_CURRENT_SOURCE_DIR}/cli/replay.txt)
+cli_exit_test(cli.exit.replay_every_0_is_2 2 replay ${CMAKE_CURRENT_SOURCE_DIR}/cli/replay.txt --every 0)
+cli_exit_test(cli.exit.replay_levels_without_a_value_is_2 2 replay --levels)
+cli_exit_test(cli.exit.replay_of_two_files_is_2 2 replay ${CMAKE_CURRENT_SOURCE_DIR}/cli/replay.txt
+              ${CMAKE_CURRENT_SOURCE_DIR}/cli/replay.txt)
+cli_exit_test(cli.exit.replay_of_a_missing_file_is_1 1 replay ${CMAKE_CURRENT_BINARY_DIR}/no_such_file.txt)
+cli_exit_test(cli.exit.replay_of_a_bad_command_is_1 1 replay ${CMAKE_CURRENT_SOURCE_DIR}/cli/bad_command.txt)

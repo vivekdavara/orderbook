@@ -1,0 +1,8 @@
+# The sweep of scenarios/10_sweep_and_rest.txt as plain commands, then a cancel.
+new 1 sell limit 2 @ 100
+new 2 sell limit 2 @ 101
+new 3 sell limit 2 @ 102
+new 4 sell limit 2 @ 104
+new 5 buy limit 1 @ 98
+new 6 buy limit 9 @ 102
+cancel 4
