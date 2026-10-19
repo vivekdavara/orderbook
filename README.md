@@ -363,7 +363,8 @@ thread on macOS can be paused or moved by the scheduler. Setting both threads to
 steers them to performance cores) left the p99.9 at 22 to 29 µs in one run (11:17; not kept; its comparison run without
 the setting was disturbed by other load and is discarded). The saturated runs top out at 13.3 to 13.8 M commands a
 second, a fifth or less of the engine's own rate: the sender, which reads the clock twice a command and drains every
-report, is the bottleneck here, and the tails there are queueing. The gateway (day 4) will be measured the same way.
+report, is the bottleneck here, and the tails there are queueing. The gateway is measured the same way: Results (day
+4).
 
 **Tried and measured, not kept: finding a level by walking from the top.** Most activity is near the top of the book, so
 a walk from the back of the level vector might beat the binary search. `BM_Engine` (5 repetitions, medians), binary
@@ -594,12 +595,12 @@ that accepted trailing words (`7681692` and the commit after it).
 - **Integer ticks and lots, as distinct types.** Exact comparison and sums, and a quantity passed where a price
   belongs doesn't compile. The bounds (10^9 each) keep every sum the book can form inside an `int64`.
 - **Order ids must increase.** The engine detects a duplicate with one comparison and no memory of past ids, and an
-  id can never be reused, so a late cancel can't hit a newer order. The gateway (day 4) assigns them; clients keep
-  their own.
+  id can never be reused, so a late cancel can't hit a newer order. The gateway assigns them; clients keep their own,
+  which must increase within a session for the same reason.
 - **A rejected command changes nothing**, not even the last accepted id, so a client can fix an order and resend it
   under the same id, and tests can compare the whole book before and after.
-- **One `trade` event per fill**, at the maker's price, naming both orders; a limit order's rest is silent. Execution
-  reports for each side are the gateway's job.
+- **One `trade` event per fill**, at the maker's price, naming both orders; a limit order's rest is silent. The
+  gateway turns each into a `fill` for each side, under that side's own id.
 - **The order of the validation checks is part of the specification**, so two implementations agree on the reason
   for a rejection, not just on the rejection.
 - **A deliberately naive reference model** as the oracle, instead of trusting the engine's own unit tests: the

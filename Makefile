@@ -15,12 +15,13 @@ asan:
 	cmake --build --preset asan -j $(JOBS)
 	ctest --preset asan -j $(JOBS)
 
-# The tests with threads (the SPSC ring's and the engine thread's) under ThreadSanitizer, which reports two threads'
-# accesses to the same memory with no happens-before between them as a data race. The other tests have one thread.
+# The tests with threads (the SPSC ring's, the engine thread's and the gateway's) under ThreadSanitizer, which reports
+# two threads' accesses to the same memory with no happens-before between them as a data race. The other tests have
+# one thread.
 tsan:
 	cmake --preset tsan >/dev/null
 	cmake --build --preset tsan -j $(JOBS)
-	ctest --preset tsan -j $(JOBS) -R '^(SpscRing|EngineThread)[.]'
+	ctest --preset tsan -j $(JOBS) -R '^(SpscRing|EngineThread|Gateway)[.]'
 
 # Optimised build, then every benchmark 5 times; Google Benchmark reports the mean, median, stddev and CV of each.
 # BENCH_ARGS passes more flags, e.g. BENCH_ARGS=--benchmark_filter=ReferenceBook.

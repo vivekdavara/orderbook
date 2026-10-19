@@ -3,8 +3,8 @@
 // The vocabulary types every part of the book shares: prices, quantities, order ids, sides and order types.
 //
 // Prices are whole ticks and quantities whole lots, both integers, so two equal prices always compare equal and a
-// sum of quantities is exact. Converting to and from decimal prices is the gateway's job (day 4). Each is its own
-// type, so a call that passes a quantity where a price belongs doesn't compile.
+// sum of quantities is exact. The gateway's protocol uses them as they are (decimal prices are left to clients).
+// Each is its own type, so a call that passes a quantity where a price belongs doesn't compile.
 
 #include <compare>
 #include <cstdint>

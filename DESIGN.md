@@ -3,7 +3,8 @@
 A limit order book for one instrument and the matching engine that runs it. Clients send commands (new orders and
 cancels); the engine answers each command with a list of events (acceptances, rejections, trades, cancellations).
 This document is the specification: the rules below are what the reference model implements literally and what the
-engine (`Book`: built on day 2, rebuilt for speed on day 3) reproduces event for event.
+engine (`Book`: built on day 2, rebuilt for speed on day 3) reproduces event for event. Day 4 put a TCP gateway in
+front of it and an L2 market-data feed behind it.
 
 ## Goals and non-goals
 
@@ -24,7 +25,8 @@ has no notion of an account; the gateway could add it), fees, persistence, and n
 ## The model
 
 - A **price** is a whole number of ticks and a **quantity** a whole number of lots, both `int64` (`types.hpp`).
-  Integer prices make equality exact; converting to and from decimal prices is the gateway's job (day 4).
+  Integer prices make equality exact. The gateway's protocol is in ticks and lots too: converting to and from decimal
+  prices is left to its clients.
 - The **book** has two sides. Bids (buy orders) are ordered best first by highest price; asks (sell orders) best
   first by lowest price. Orders at the same price form a **price level**, ordered by arrival.
 - A **resting order** is what is left of a limit order that didn't fully trade: its id, side, price and remaining
@@ -40,7 +42,7 @@ has no notion of an account; the gateway could add it), fees, persistence, and n
 | New market order | id, side, quantity | Trade at any price; cancel the remainder. A market order has no price (0). |
 | Cancel | id | Remove the resting order `id` from the book. |
 
-**Order ids** are assigned by whoever feeds the engine (the gateway, on day 4) and must **increase**: a new order's
+**Order ids** are assigned by whoever feeds the engine (the gateway, since day 4) and must **increase**: a new order's
 id must be greater than every id the engine has accepted before. That makes a duplicate id impossible to accept
 without the engine remembering every id it has seen (the check is one comparison), and it means an id is never
 reused, so a late cancel can't hit a newer order that happened to get the same id. Clients keep their own ids; the
@@ -151,8 +153,8 @@ Every command whose side and type are named values has a text form that parses b
 ones included: quantities and prices may be zero or negative (`new 4 buy limit 0 @ 100` is a valid line and an
 invalid order), and a market order may carry a nonzero `@ <price>`, which validation then rejects (`@ 0` is the same
 command as no price). Words are lower case and separated by spaces or tabs; the formatter writes single spaces. The
-book doesn't check that a side or type is a named value: commands come from the parser, which makes only those, or
-(day 4) from the gateway, which has to check its own input.
+book doesn't check that a side or type is a named value: commands come from the parser, which makes only those, and
+the gateway reads its clients' lines with the same parser.
 
 A **scenario file** is a script with its expected results:
 
@@ -296,25 +298,80 @@ two single-producer single-consumer rings (`include/orderbook/spsc_ring.hpp`, `i
   stopped receiving, so the rest would never be read. The book is readable once stopped.
 - **Not done.** Pinning the two threads to cores: macOS has no API for it on Apple silicon (only an affinity *hint*),
   so the measurements here are of threads the scheduler places; Linux would use `pthread_setaffinity_np`. The gateway
-  that sends and the TCP side are day 4's.
+  that sends, and the TCP side, are in "The gateway (day 4)" below.
 
-## Architecture (the plan for day 4)
+## Market data (day 4)
+
+The book by price level, for the world outside the engine (`include/orderbook/market_data.hpp`).
+
+- **Built from the events, not read from the engine.** `DepthFeed` follows each command and the events the engine
+  answered it with. It keeps its own record of the resting orders (side, price, what is left, by id) and each level's
+  total, and says which levels each command changed, each once, with the new total (0: the level is gone). An
+  accepted limit order's remainder (its quantity less its trades) rests at its price; an IOC or market order's never
+  does; a trade takes its quantity from the maker's order and level, at the maker's price; a cancellation takes what
+  was left. Nothing is read from the engine, so the engine's thread does no extra work, and the feed runs on whichever
+  thread has the events: the gateway's.
+- **Each changed level once, without a set.** A taker's trades walk the other side best first and never come back to
+  a level, and its remainder rests on its own side; a cancel changes one level. So a change need only be compared
+  with the last one noted.
+- **Checked against its book.** Events that don't fit the feed's record (a trade with, or a cancellation of, an order
+  it doesn't have resting, at another price, or for more than is left) throw `std::logic_error`: the book and its feed
+  disagree, and the feed is no longer usable (fail-stop, as the engine is).
+- **Sequence numbers, snapshots and gaps.** The feed numbers the commands it follows from 1. An `L2Snapshot` is the
+  top K levels a side after command N. A subscriber (`L2Book`) starts empty at 0 or from a snapshot and applies only
+  command N+1's updates: a gap or a repeat is refused, and it starts again from a fresh snapshot, the
+  snapshot-and-recovery pattern of exchange feeds. A top-K snapshot shows the top of the book; following the deeper
+  levels needs a full one (`kAllLevels`).
+- **Replay.** `orderbook replay` reads a command stream (synthetic, from `orderbook gen`), applies it to a book and
+  the feed, and prints a snapshot every N commands, each first checked against the book's own depth; with
+  `--updates`, every command's level updates too. The output is the same on every book.
+- **Cost.** Standard containers: a hash map of the resting orders and a `std::map` of levels a side, so a change is
+  O(log L) and allocates when an order rests or a level appears. That is on the gateway's thread, where each command
+  already costs a parse, string building and socket calls; the promise of no allocation is the engine thread's.
+
+## The gateway (day 4)
 
 ```mermaid
 flowchart LR
-    C1[Client] -- TCP --> G
+    C1[Client] -- "TCP lines: new, cancel, book" --> G
     C2[Client] -- TCP --> G
-    G[Gateway thread<br/>port 8107<br/>parse, assign ids] -- commands --> R1[(SPSC ring)]
-    R1 --> E[Engine thread<br/>the book]
-    E -- events --> R2[(SPSC ring)]
+    G["Gateway thread, poll(2)<br/>port 8107<br/>parse, map ids, route answers"] -- "Request {sequence, command}" --> R1[(SPSC ring)]
+    R1 --> E[Engine thread<br/>owns the Book]
+    E -- "Report {sequence, event, last}" --> R2[(SPSC ring)]
     R2 --> G
-    E -. snapshots .-> M[L2 depth]
+    G -- "each command and its events" --> F[DepthFeed<br/>L2 levels]
+    F -- "snapshot, for book" --> G
 ```
 
-One engine thread owns the book, so the book itself needs no locks. The gateway thread parses client messages,
-assigns increasing order ids, and pushes commands through a single-producer single-consumer ring (built on day 3, with
-the engine's thread: "Threads" above); events come back through a second ring. Day 4 adds the gateway, a load
-generator, a synthetic market-data replay and L2 snapshots.
+- **One thread for every connection** (`include/orderbook/gateway.hpp`): non-blocking sockets and `poll(2)`, and the
+  single sender `EngineThread` asks for. While commands are in the engine it polls without waiting and comes back for
+  the reports; when none are, it blocks in `poll` until a socket, or `stop()`'s pipe, wakes it.
+- **A text protocol**, a line each way per message: `new` and `cancel` in the text format of the scenario files (the
+  parser fuzzed since day 1), and `book [levels]`; the answers are `accepted`, `rejected`, `fill`, `cancelled`,
+  `snapshot` and `error`. It can be driven by hand with `nc`.
+- **Ids.** Each client names its orders with its own ids. A session's new orders must have increasing ids, for the
+  engine's reason (no duplicate or reused id without remembering every one), checked at the gateway; unlike the
+  engine, the gateway uses up an id the engine rejects. Each order gets the engine's next id, so the engine's ids
+  increase too. The gateway keeps a route (engine id to session, client id and what is left) and, per session, the
+  client ids of its live orders, for cancels, and forgets both when the order is done: rejected, filled, cancelled,
+  or answered without resting. A trade is a `fill` to each side under its own id, so no client learns another's.
+- **Answers in line order.** The engine answers commands in the order they were sent, so the answers it gives a
+  session come in the order of the session's lines. The gateway's own answers (a rejection it makes, a snapshot, an
+  error) are held until the session's commands before them are answered, then written: every answer comes in line
+  order. A held snapshot is taken when written, after the commands before it. A resting order's `fill` comes when the
+  trade happens.
+- **Sessions end** when the client closes its side and every answer is written (a client may half-close and still
+  read), or at once on a socket error, a line over 256 bytes, or 4 MiB of answers it doesn't read. Its live orders are
+  then cancelled: cancel on disconnect, by the gateway's own commands, whose answers go nowhere.
+- **Back-pressure.** A full request ring stops the reading of lines until the engine takes some; the gateway drains
+  the reports every turn, so the engine never waits on it for long. A client with 1 MiB of input read but not handled
+  isn't read until it is, so its sends back up into TCP. A session handles at most 256 lines a turn.
+- **Signals.** `orderbook_gateway` blocks SIGINT and SIGTERM in every thread and waits for them with `sigwait` on its
+  main thread, after resetting their dispositions: an ignored signal is discarded, not left pending, and a
+  non-interactive shell starts `&` jobs with SIGINT ignored (the end-to-end test found this).
+- **Not done.** Authentication and TLS (it listens on loopback by default), a binary protocol, rate limits per
+  session, market data pushed to subscribers (the gateway answers `book` on request; `L2Book` is the subscriber side),
+  self-trade prevention, IPv6.
 
 ## Testing
 
@@ -362,11 +419,22 @@ generator, a synthetic market-data replay and L2 snapshots.
   tests under ThreadSanitizer, which reports a missing happens-before as a data race. It sees that only for values
   copied word by word: on this Mac it reported a ring of integers published with a relaxed store and not a ring of
   64-byte structs with the same bug (copied with `memcpy`), so the ring's threaded tests run on both.
+- **Market data** (day 4). `tests/market_data_test.cpp`: hand-worked cases, then random streams in five mixes on
+  the engine and one on the reference model, 110,000 commands, after every one of which (every 50th on a deep book)
+  the feed's levels and a subscriber's equal the book's depth and no update names a level twice; a subscriber that
+  joins from a snapshot halfway ends equal to one that followed from the start; gaps are refused. `orderbook replay`
+  checks every snapshot against its book: the tool built around the price-bug book fails at the command `diff` finds.
+- **The gateway** (day 4). `tests/gateway_test.cpp` drives a gateway on a free port over real TCP connections: the id
+  rules, fills to both sides, answers in line order with the gateway's own among them, snapshots, cancel on
+  disconnect, half-close, long lines, and 20,000 random commands from one client answered line for line as the engine
+  answers them directly. `scripts/gateway_smoke.sh` runs the executable under the load generator and stops it with
+  SIGINT. `make tsan` runs the gateway's tests too.
 - **Benchmarks** (Google Benchmark): commands per second for the three books on the same commands against the same
   book (the reference model and day 2's engine are the baselines). **Latency percentiles** (`make latency`,
   `bench/latency.cpp`): each command timed alone in one thread, and the engine's thread timed from the sender's side,
   one command at a time, paced at a fixed rate (timed from when each command was due, so a held-up sender counts its
-  wait), and saturated.
+  wait), and saturated. **The gateway's latency** (`make loadgen`, `bench/loadgen.cpp`): from the clients' side over TCP, each
+  command from when it was due to its acknowledgement, one at a time, paced and saturated.
 
 ## Plan
 
@@ -375,5 +443,5 @@ generator, a synthetic market-data replay and L2 snapshots.
 | 1 | This design, the CMake scaffold, the types and text format, the reference model, scenario files, the random command generator and invariant checks (the Audit), a minimizer for failing runs, fuzz targets, the CLI, the benchmark harness, coverage, CI on Linux and macOS. |
 | 2 | The matching engine (price levels, FIFO per level, trade events), differential tests against the reference. Done. |
 | 3 | Performance: intrusive lists, object pools, no allocation on the hot path; a lock-free SPSC ring; benchmarks (orders/s, latency percentiles). Done. |
-| 4 | Replay of a synthetic market-data stream, L2 snapshots, the TCP gateway (8107) with a load generator. |
+| 4 | Replay of a synthetic market-data stream, L2 snapshots, the TCP gateway (8107) with a load generator. Done. |
 | 5 | Latency histograms, README with results, WALKTHROUGH.md, v1.0.0. |
