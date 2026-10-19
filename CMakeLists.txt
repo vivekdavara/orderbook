@@ -44,6 +44,17 @@ target_compile_features(orderbook PUBLIC cxx_std_20)
 target_link_libraries(orderbook PUBLIC Threads::Threads)
 orderbook_set_warnings(orderbook)
 
+# The TCP order gateway in front of the engine's thread (POSIX sockets and poll), and its executable.
+add_library(orderbook_gateway src/gateway.cpp)
+add_library(orderbook::gateway ALIAS orderbook_gateway)
+target_link_libraries(orderbook_gateway PUBLIC orderbook::orderbook)
+orderbook_set_warnings(orderbook_gateway)
+
+add_executable(orderbook_gateway_server tools/gateway_main.cpp)
+set_target_properties(orderbook_gateway_server PROPERTIES OUTPUT_NAME orderbook_gateway)
+target_link_libraries(orderbook_gateway_server PRIVATE orderbook::gateway)
+orderbook_set_warnings(orderbook_gateway_server)
+
 # What tests, benchmarks and tools use to check a book: the reference model (the oracle), day 2's engine (the
 # baseline day 3 is measured against), the scenario runner, the random command generator, the invariant checks, the
 # minimizer and the differential harness. Kept out of the engine's library.

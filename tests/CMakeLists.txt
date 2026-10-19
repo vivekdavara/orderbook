@@ -7,6 +7,7 @@ add_executable(orderbook_tests
   differential_harness_test.cpp
   differential_test.cpp
   engine_thread_test.cpp
+  gateway_test.cpp
   id_table_test.cpp
   market_data_test.cpp
   minimize_test.cpp
@@ -21,7 +22,7 @@ add_executable(orderbook_tests
   spsc_ring_test.cpp
   text_test.cpp
   types_test.cpp)
-target_link_libraries(orderbook_tests PRIVATE orderbook::testkit GTest::gtest_main Threads::Threads)
+target_link_libraries(orderbook_tests PRIVATE orderbook::testkit orderbook::gateway GTest::gtest_main Threads::Threads)
 orderbook_set_warnings(orderbook_tests)
 target_compile_definitions(orderbook_tests PRIVATE ORDERBOOK_SCENARIO_DIR="${CMAKE_CURRENT_SOURCE_DIR}/scenarios")
 
