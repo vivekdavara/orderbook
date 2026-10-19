@@ -267,7 +267,12 @@ void Gateway::too_long(Session& session) {
 }
 
 Gateway::Handled Gateway::handle_line(std::uint64_t id, Session& session, std::string_view line) {
-  if (line.find_first_not_of(" \t") == std::string_view::npos) return Handled::Done;  // a blank line
+  const std::size_t first = line.find_first_not_of(" \t");
+  if (first == std::string_view::npos) return Handled::Done;  // a blank line
+  if (const std::size_t last = line.find_last_not_of(" \t"); line.substr(first, last + 1 - first) == "subscribe") {
+    answer_now_or_later(session, Held{session.sent, "", kAllLevels, true});
+    return Handled::Done;
+  }
   if (const auto book = parse_book(line)) {
     answer_now_or_later(session, book->error.empty() ? Held{session.sent, "", book->levels}
                                                      : Held{session.sent, "error " + book->error, 0});
@@ -328,6 +333,10 @@ void Gateway::flush_held(Session& session) {
     const Held& held = session.held.front();
     session.out += held.text.empty() ? format(feed_.snapshot(held.levels)) : held.text;
     session.out += '\n';
+    if (held.subscribe && !session.subscribed) {
+      session.subscribed = true;  // the updates of every command after the snapshot's
+      ++subscribers_;
+    }
     session.held.pop_front();
   }
 }
@@ -371,7 +380,15 @@ void Gateway::handle_report(const Report& report) {
 }
 
 void Gateway::command_answered(const InFlight& done) {
-  feed_.apply(done.command, events_, updates_);
+  const std::uint64_t sequence = feed_.apply(done.command, events_, updates_);
+  if (subscribers_ > 0) {
+    const std::string line = format_updates(sequence, updates_);
+    for (auto& [id, session] : sessions_) {
+      if (!session.subscribed) continue;
+      session.out += line;
+      session.out += '\n';
+    }
+  }
   updates_.clear();
   if (const auto* order = std::get_if<NewOrder>(&done.command)) {
     // It rests if it was accepted, is a limit order, and has some left: then it stays live until it fills or is
@@ -452,6 +469,7 @@ void Gateway::drop(Session& session) {
 }
 
 void Gateway::end_session(Session& session) {
+  if (session.subscribed) --subscribers_;
   if (session.drop) write_out(session);  // the error line, if the socket takes it
   for (const auto& [client_id, engine_id] : session.live) pending_cancels_.push_back(engine_id);
   ::close(session.fd);

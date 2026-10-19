@@ -26,6 +26,7 @@
 #include <vector>
 
 #include "orderbook/book.hpp"
+#include "orderbook/market_data.hpp"
 #include "orderbook/random_flow.hpp"
 #include "orderbook/text.hpp"
 
@@ -350,6 +351,89 @@ TEST(Gateway, AClientThatDoesntReadItsAnswersIsDropped) {
   while ((last = slow.line()).starts_with("snapshot")) ++answers;
   EXPECT_TRUE(last == "<eof>" || last == "<error>") << last;  // dropped, not merely slow
   EXPECT_LT(answers, 40'000U);
+}
+
+// "snapshot 2 bids 99x3 asks 101x5" back into a snapshot ("-" for an empty side).
+L2Snapshot parse_snapshot(const std::string& line) {
+  L2Snapshot snapshot;
+  const std::size_t bids = line.find(" bids ");
+  const std::size_t asks = line.find(" asks ");
+  EXPECT_TRUE(line.starts_with("snapshot ") && bids != std::string::npos && asks != std::string::npos) << line;
+  if (bids == std::string::npos || asks == std::string::npos) return snapshot;
+  snapshot.sequence = std::stoull(line.substr(9, bids - 9));
+  const auto side = [](std::string text) {
+    return text == "-" ? std::vector<Level>{} : parse_levels(text).value_or(std::vector<Level>{});
+  };
+  snapshot.bids = side(line.substr(bids + 6, asks - bids - 6));
+  snapshot.asks = side(line.substr(asks + 6));
+  return snapshot;
+}
+
+// "update 8 sell 101x0 buy 101x3" back into a sequence number and updates.
+std::uint64_t parse_update(const std::string& line, std::vector<LevelUpdate>& updates) {
+  updates.clear();
+  std::vector<std::string> words;
+  for (std::size_t i = 0; i < line.size();) {
+    const std::size_t end = std::min(line.find(' ', i), line.size());
+    words.push_back(line.substr(i, end - i));
+    i = end + 1;
+  }
+  EXPECT_TRUE(words.size() >= 2 && words[0] == "update" && words.size() % 2 == 0) << line;
+  if (words.size() < 2) return 0;
+  for (std::size_t i = 2; i + 1 < words.size(); i += 2) {
+    const auto level = parse_levels(words[i + 1]);
+    EXPECT_TRUE(level.has_value() && level->size() == 1) << line;
+    if (!level || level->empty()) continue;
+    updates.push_back(LevelUpdate{words[i] == "buy" ? Side::Buy : Side::Sell, level->front().price,
+                                  level->front().quantity});
+  }
+  return std::stoull(words[1]);
+}
+
+TEST(Gateway, ASubscriberFollowsTheBookFromItsSnapshotAndAnUpdateForEveryCommand) {
+  RunningGateway gateway;
+  Client trader(gateway.port());
+  EXPECT_EQ(trader.ask("new 1 sell limit 5 @ 101\nnew 2 buy limit 3 @ 99\n", 2), (Lines{"accepted 1", "accepted 2"}));
+  Client subscriber(gateway.port());
+  const std::string first = subscriber.ask("subscribe\n", 1).front();
+  EXPECT_EQ(first, "snapshot 2 bids 99x3 asks 101x5");
+
+  // Another client's random stream, then a book request, answered once every command before it is.
+  RandomFlow flow(41, FlowOptions{.target_resting = 200, .invalid_per_mille = 0});
+  std::string text;
+  for (int i = 0; i < 5'000; ++i) text += format(flow.next()) + "\n";
+  text += "book 1\n";
+  Client other(gateway.port());
+  std::thread sender([&] { other.send(text); });
+  std::string line;
+  while (!(line = other.line()).starts_with("snapshot")) ASSERT_FALSE(line.starts_with("<")) << line;
+  sender.join();
+
+  // The subscriber has an update line for each command that reached the engine, every sequence number from 3 on (the
+  // cancels of orders already filled are answered by the gateway and never reach it), then its own book's answer.
+  subscriber.send("book 1000\n");
+  L2Book book(parse_snapshot(first));
+  std::vector<LevelUpdate> updates;
+  std::size_t lines = 0;
+  while (!(line = subscriber.line()).starts_with("snapshot")) {
+    ASSERT_TRUE(line.starts_with("update ")) << line;
+    const std::uint64_t sequence = parse_update(line, updates);
+    ASSERT_TRUE(book.apply(sequence, updates)) << "a gap: " << line << " after " << book.sequence();
+    ++lines;
+  }
+  EXPECT_EQ(format(book.snapshot(1'000)), line);
+  EXPECT_EQ(lines, book.sequence() - 2);
+  EXPECT_GT(lines, 4'000U);
+  EXPECT_GT(book.depth(Side::Buy).size() + book.depth(Side::Sell).size(), 20U);
+  // Subscribing again gives a fresh snapshot, and each update still comes once.
+  EXPECT_EQ(subscriber.ask("subscribe\n", 1).front(), line);
+  trader.send("new 3 buy limit 1 @ 50\n");
+  while (!(line = trader.line()).starts_with("accepted")) ASSERT_TRUE(line.starts_with("fill ")) << line;  // its fills
+  EXPECT_EQ(line, "accepted 3");
+  const std::string next = std::to_string(book.sequence() + 1);
+  const Lines last = subscriber.ask("book 1\n", 2);  // one update line, not two, then the book
+  EXPECT_EQ(last[0], "update " + next + " buy 50x1");
+  EXPECT_TRUE(last[1].starts_with("snapshot " + next + " ")) << last[1];
 }
 
 // The answers a client should get for its commands, from a book applied directly: with one session sending the ids
