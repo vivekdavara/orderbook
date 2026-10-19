@@ -364,8 +364,13 @@ engine`):
   at 200k/s), on 1, 2 or 4 connections alike (at `bcfd52a`, 10:40: p99 3.6, 4.0 and 6.7 ms at 100k/s). The sender
   was rarely late at 50k and 100k/s (0 to 8 sends over 50 µs; 19 and 590 at 200k/s), so the commands waited after
   leaving it. A stall of some
-  milliseconds somewhere on the path (one of three spinning threads descheduled, or the gateway's thread waking from
-  `poll`) makes every command due during it wait, and the timing charges each; what stalls isn't traced.
+  milliseconds somewhere on the path makes every command due during it wait, and the timing charges each; what stalls
+  isn't traced. One suspect is ruled out: with the gateway's thread spinning instead of blocking in `poll`
+  (`orderbook_loadgen --spin on --rate 100000 --rate 200000`, against `--spin off`, alternated twice each at `a1cc2ce`'s
+  code, 11:11, load average 3.4 to 3.6), the p99 was 7.2 and 7.3 ms at 100k/s (6.7 and 7.5 without) and 17.8 and
+  19.1 ms at 200k/s (18.9 and 16.1 without): no difference. Left: one of the three spinning threads (the engine's,
+  the gateway's, the load generator's) descheduled or moved to an efficiency core, and the load generator's own
+  receive path.
 - A first run at `bcfd52a` (10:40, load average 4.5 with a review agent building) had paced medians of 34.8, 129.6 and
   434 µs at 50k, 100k and 200k/s: discarded as disturbed, and the reason the rows above were run again.
 

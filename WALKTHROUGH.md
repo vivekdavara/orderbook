@@ -320,8 +320,9 @@ joining (`subscribe` sends the snapshot, then the updates after its number) and 
 µs at the median, almost all of it sockets (the engine's thread alone answers in 166 ns); batched, 2.70 to 2.74 million
 commands a second. Paced one write a command, the median stays near 30 µs at every rate, but from 100,000 a second the
 p99 is in milliseconds and grows with the rate. The sender wasn't late, so commands waited after leaving it: some stall
-of milliseconds on the path, which the timing charges to every command due during it. I haven't traced it; the first
-suspects are one of three spinning threads being descheduled and the gateway's thread waking from `poll`.
+of milliseconds on the path, which the timing charges to every command due during it. I haven't traced it. One
+suspect is ruled out: a gateway that spins instead of blocking in `poll` (`--spin on`) had the same p99. The next are
+one of three spinning threads being descheduled or moved to an efficiency core, and the load generator's receive path.
 
 **What does the market data cost?**
 About 50 ns a command (`BM_EngineAndDepthFeed` against `BM_Engine`): three to five times the engine itself, because

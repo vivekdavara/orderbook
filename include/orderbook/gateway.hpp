@@ -60,6 +60,7 @@ struct GatewayOptions {
   std::size_t max_line = 256;              // longer lines end the session
   std::size_t max_unread_input = 1 << 20;  // bytes read but not yet handled before it stops reading a client
   std::size_t max_unsent_output = 4 << 20;  // answers a client hasn't read before the session is ended
+  bool spin = false;  // never block in poll(2), even with nothing in the engine: a core of its own, as the engine's
 };
 
 // Counts for the end of a run. Read them once run() has returned.

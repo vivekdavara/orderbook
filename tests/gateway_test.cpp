@@ -461,6 +461,18 @@ TEST(Gateway, ASubscriberFollowsTheBookFromItsSnapshotAndAnUpdateForEveryCommand
   EXPECT_TRUE(last[1].starts_with("snapshot " + next + " ")) << last[1];
 }
 
+TEST(Gateway, ASpinningGatewayAnswersTheSame) {
+  GatewayOptions options{.port = 0};
+  options.spin = true;  // never blocks in poll
+  RunningGateway gateway(options);
+  Client seller(gateway.port());
+  Client buyer(gateway.port());
+  EXPECT_EQ(seller.ask("new 7 sell limit 10 @ 101\n", 1), (Lines{"accepted 7"}));
+  EXPECT_EQ(buyer.ask("new 3 buy limit 4 @ 101\n", 2), (Lines{"accepted 3", "fill 3 4 @ 101"}));
+  EXPECT_EQ(seller.lines(1), (Lines{"fill 7 4 @ 101"}));
+  EXPECT_EQ(buyer.ask("book\n", 1), (Lines{"snapshot 2 bids - asks 101x6"}));
+}
+
 TEST(Gateway, AnAddressItCantHaveIsAnError) {
   EXPECT_THROW(Gateway(GatewayOptions{.host = "not-an-address", .port = 0}), std::system_error);
   const Gateway first(GatewayOptions{.port = 0});

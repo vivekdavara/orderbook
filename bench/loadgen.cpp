@@ -12,8 +12,9 @@
 // connection has fewer than 1,024 commands outstanding. Each row starts with fresh connections, which first build a
 // book of about 1,000 resting orders (untimed); when they close, the gateway cancels what they left.
 //
-// Usage: orderbook_loadgen [--port N] [--host IPV4] [--connections C] [--commands N] [--rate R]...
-// Without --port it starts a gateway in this process, on a free port, on its own thread. Without --rate it runs one
+// Usage: orderbook_loadgen [--port N] [--host IPV4] [--connections C] [--commands N] [--rate R]... [--spin on|off]
+// Without --port it starts a gateway in this process, on a free port, on its own thread (--spin on: one that never
+// blocks in poll). Without --rate it runs one
 // at a time, then paced at 50,000, 100,000 and 200,000 commands/s, then saturated. Times are in microseconds, from
 // std::chrono::steady_clock.
 
@@ -212,6 +213,7 @@ struct Options {
   std::size_t connections = 4;
   std::size_t commands = 200'000;
   std::vector<double> rates;
+  bool spin = false;  // the in-process gateway never blocks in poll
 };
 
 // A row's workload: connection c's commands come from RandomFlow seed 1000 + c; the warm-up builds about 1,000
@@ -292,7 +294,8 @@ void row(const Options& options, std::uint16_t port, std::size_t connections, do
 
 int usage() {
   std::fprintf(stderr,
-               "usage: orderbook_loadgen [--port N] [--host IPV4] [--connections C] [--commands N] [--rate R]...\n");
+               "usage: orderbook_loadgen [--port N] [--host IPV4] [--connections C] [--commands N] [--rate R]... "
+               "[--spin on|off]\n");
   return 2;
 }
 
@@ -309,7 +312,9 @@ int main(int argc, char** argv) {
     char* end = nullptr;
     const double number = std::strtod(value.c_str(), &end);
     const bool numeric = end != value.c_str() && *end == '\0' && number >= 0;
-    if (flag == "--host") {
+    if (flag == "--spin" && (value == "on" || value == "off")) {
+      options.spin = value == "on";
+    } else if (flag == "--host") {
       options.host = value;
     } else if (flag == "--port" && numeric && number >= 1 && number <= 65'535) {
       options.port = static_cast<std::uint16_t>(number);
@@ -331,13 +336,15 @@ int main(int argc, char** argv) {
   if (options.port) {
     port = *options.port;
   } else {
-    local = std::make_unique<Gateway>(GatewayOptions{.port = 0});
+    GatewayOptions gateway_options{.port = 0};
+    gateway_options.spin = options.spin;
+    local = std::make_unique<Gateway>(gateway_options);
     port = local->port();
     loop = std::thread([&] { local->run(); });
   }
   std::printf("orderbook_loadgen: %zu timed commands a row, RandomFlow seeds 1000+ (synthetic), gateway %s:%u%s\n",
               options.commands, options.host.c_str(), static_cast<unsigned>(port),
-              local ? " (in this process)" : "");
+              local ? (options.spin ? " (in this process, spinning)" : " (in this process)") : "");
   std::printf("From when each command was due to its acknowledgement (us):\n");
   print_header();
   if (options.rates.empty()) {

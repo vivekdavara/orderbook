@@ -181,8 +181,8 @@ void Gateway::run() {
       ids.push_back(id);
     }
     // With commands in the engine, look at the sockets without waiting and come back for the reports; otherwise
-    // nothing can happen until a socket (or stop()) wakes the loop.
-    const int timeout = in_flight_.empty() && !busy ? -1 : 0;
+    // nothing can happen until a socket (or stop()) wakes the loop, unless it is to spin.
+    const int timeout = in_flight_.empty() && !busy && !options_.spin ? -1 : 0;
     const int ready = ::poll(fds.data(), descriptor_count<nfds_t>(fds.size()), timeout);
     if (ready < 0) {
       if (errno == EINTR) continue;
