@@ -29,6 +29,7 @@
 #include "orderbook/market_data.hpp"
 #include "orderbook/random_flow.hpp"
 #include "orderbook/text.hpp"
+#include "orderbook/would_block.hpp"
 
 namespace orderbook {
 namespace {
@@ -104,7 +105,7 @@ class Client {
       char chunk[4096];
       const ssize_t n = ::recv(fd_, chunk, sizeof chunk, 0);
       if (n == 0) return "<eof>";
-      if (n < 0) return errno == EAGAIN || errno == EWOULDBLOCK ? "<timeout>" : "<error>";
+      if (n < 0) return would_block(errno) ? "<timeout>" : "<error>";
       buffer_.append(chunk, static_cast<std::size_t>(n));
     }
   }

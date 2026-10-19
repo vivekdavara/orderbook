@@ -45,6 +45,7 @@
 #include "orderbook/gateway.hpp"
 #include "orderbook/random_flow.hpp"
 #include "orderbook/text.hpp"
+#include "orderbook/would_block.hpp"
 
 namespace orderbook {
 namespace {
@@ -164,7 +165,7 @@ Run drive(std::vector<Connection>& connections, const std::vector<Item>& items, 
         const ssize_t n = ::send(connection.fd, connection.out.data() + connection.out_sent,
                                  connection.out.size() - connection.out_sent, 0);
         if (n <= 0) {
-          if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR)) break;
+          if (n < 0 && (would_block(errno) || errno == EINTR)) break;
           die("send failed: the gateway closed the connection");
         }
         connection.out_sent += static_cast<std::size_t>(n);
@@ -176,7 +177,7 @@ Run drive(std::vector<Connection>& connections, const std::vector<Item>& items, 
       const ssize_t n = ::recv(connection.fd, chunk, sizeof chunk, 0);
       if (n == 0) die("the gateway closed a connection");
       if (n < 0) {
-        if (errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR) die("recv failed");
+        if (!would_block(errno) && errno != EINTR) die("recv failed");
         continue;
       }
       const auto arrived = Clock::now();

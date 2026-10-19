@@ -14,10 +14,12 @@
 #include <charconv>
 #include <optional>
 #include <system_error>
+#include <type_traits>
 #include <utility>
 #include <variant>
 
 #include "orderbook/text.hpp"
+#include "orderbook/would_block.hpp"
 
 namespace orderbook {
 namespace {
@@ -48,6 +50,17 @@ constexpr int kSendFlags = MSG_NOSIGNAL;
 #else
 constexpr int kSendFlags = 0;
 #endif
+
+// poll(2)'s count of descriptors: nfds_t is unsigned int on macOS and unsigned long (size_t) on Linux, where GCC
+// calls a cast to it useless. A template, so the cast that isn't needed is never instantiated.
+template <typename Count>
+Count descriptor_count(std::size_t n) {
+  if constexpr (std::is_same_v<Count, std::size_t>) {
+    return n;
+  } else {
+    return static_cast<Count>(n);
+  }
+}
 
 // Network byte order is big-endian (htons is a macro full of casts the warnings flag).
 std::uint16_t network_order(std::uint16_t value) {
@@ -170,7 +183,7 @@ void Gateway::run() {
     // With commands in the engine, look at the sockets without waiting and come back for the reports; otherwise
     // nothing can happen until a socket (or stop()) wakes the loop.
     const int timeout = in_flight_.empty() && !busy ? -1 : 0;
-    const int ready = ::poll(fds.data(), static_cast<nfds_t>(fds.size()), timeout);
+    const int ready = ::poll(fds.data(), descriptor_count<nfds_t>(fds.size()), timeout);
     if (ready < 0) {
       if (errno == EINTR) continue;
       fail("poll");
@@ -224,7 +237,7 @@ void Gateway::read_from(Session& session) {
       return;
     }
     if (errno == EINTR) continue;
-    if (errno != EAGAIN && errno != EWOULDBLOCK) drop(session);  // reset by the peer, or another socket error
+    if (!would_block(errno)) drop(session);  // reset by the peer, or another socket error
     return;
   }
 }
@@ -433,7 +446,7 @@ void Gateway::write_out(Session& session) {
       continue;
     }
     if (n < 0 && errno == EINTR) continue;
-    if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) break;
+    if (n < 0 && would_block(errno)) break;
     drop(session);  // the client has gone (EPIPE, ECONNRESET)
     return;
   }
