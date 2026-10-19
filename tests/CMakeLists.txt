@@ -18,6 +18,7 @@ add_executable(orderbook_tests
   review3/state_only_difference_scenario_test.cpp
   review4/diff_soak_script_test.cpp
   review4/state_mismatch_report_test.cpp
+  review5/gateway_review_test.cpp
   scenario_test.cpp
   spsc_ring_test.cpp
   text_test.cpp

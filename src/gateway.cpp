@@ -153,7 +153,8 @@ void Gateway::run() {
       if (!session.drop && !handle_lines(id, session)) busy = true;
     }
     for (auto& [id, session] : sessions_) write_out(session);
-    end_sessions();
+    end_sessions();  // may queue cancels on disconnect: busy again
+    if (!pending_cancels_.empty()) busy = true;
 
     fds.clear();
     ids.clear();
@@ -233,16 +234,13 @@ bool Gateway::handle_lines(std::uint64_t id, Session& session) {
   bool room = true;
   for (int handled = 0; handled < kLinesPerTurn; ++handled) {
     const std::size_t end = session.in.find('\n', start);
-    const std::size_t length = (end == std::string::npos ? session.in.size() : end) - start;
-    if (length > options_.max_line) {
-      session.out += "error line longer than " + std::to_string(options_.max_line) + " bytes\n";
-      drop(session);
-      start = session.in.size();
-      break;
-    }
     if (end == std::string::npos) break;
-    std::string_view line(session.in.data() + start, length);
-    if (!line.empty() && line.back() == '\r') line.remove_suffix(1);
+    std::string_view line(session.in.data() + start, end - start);
+    if (!line.empty() && line.back() == '\r') line.remove_suffix(1);  // the limit is on the line, not its "\r\n"
+    if (line.size() > options_.max_line) {
+      too_long(session);
+      return true;
+    }
     if (handle_line(id, session, line) == Handled::NoRoom) {
       room = false;
       break;
@@ -250,8 +248,22 @@ bool Gateway::handle_lines(std::uint64_t id, Session& session) {
     start = end + 1;
   }
   session.in.erase(0, start);
-  // Lines left after a full turn: come back to them without waiting.
-  return room && session.in.find('\n') == std::string::npos;
+  if (session.in.find('\n') != std::string::npos) return false;  // lines left after a full turn: come back at once
+  // The start of a line, already past the limit (allowing for a last '\r' that may begin its "\r\n"), is too long
+  // however it ends.
+  const std::size_t allowed = options_.max_line + (!session.in.empty() && session.in.back() == '\r' ? 1 : 0);
+  if (session.in.size() > allowed) too_long(session);
+  return room;
+}
+
+void Gateway::too_long(Session& session) {
+  // Its error waits behind the answers to the lines before it, like the gateway's other answers. Nothing after it is
+  // read or handled, and the session ends once everything is answered and written.
+  answer_now_or_later(session,
+                      Held{session.sent, "error line longer than " + std::to_string(options_.max_line) + " bytes", 0});
+  session.in.clear();
+  session.read_closed = true;
+  ++stats_.dropped_sessions;
 }
 
 Gateway::Handled Gateway::handle_line(std::uint64_t id, Session& session, std::string_view line) {

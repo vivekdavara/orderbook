@@ -23,10 +23,13 @@
 //   `error`) included: those wait until the session's earlier commands are answered. A `fill` for a resting order is
 //   sent when another session's order trades with it. A snapshot is the depth feed's after every command answered so
 //   far, `book` with no number giving 10 levels a side.
-// - A session ends when the client closes its side and every answer is written, or on an error, a line longer than
-//   the limit, or more unread answers than the limit; its live orders are then cancelled (cancel on disconnect).
-// - Back-pressure: when the engine's ring is full the gateway stops reading lines until it has room, and it stops
-//   reading from a client whose unread lines pass a limit, so the client's sends back up into TCP.
+// - A session ends when the client closes its side and every answer is written; after a line longer than the limit
+//   (not counting its "\r\n"), once the answers before it and its error are written, nothing after it being read; and
+//   at once on a socket error or more unwritten answers than the limit. Its live orders are then cancelled (cancel on
+//   disconnect). An `error` for a line it can't read doesn't end a session.
+// - Back-pressure: when the engine's ring is full the gateway stops handling lines until it has room (it reads on,
+//   up to a limit of unhandled input), and it stops reading from a client past that limit, so the client's sends back
+//   up into TCP.
 
 #include <atomic>
 #include <cstddef>
@@ -60,7 +63,7 @@ struct GatewayStats {
   std::uint64_t sessions = 0;        // connections accepted
   std::uint64_t commands = 0;        // commands sent to the engine, cancels on disconnect included
   std::uint64_t gateway_answers = 0;  // rejections, snapshots and errors the gateway answered itself
-  std::uint64_t ring_full = 0;       // times a command waited for room in the engine's ring
+  std::uint64_t ring_full = 0;       // tries to send that found the engine's ring full (a command may wait several)
   std::uint64_t dropped_sessions = 0;  // ended for a long line, too much unread output or a socket error
 };
 
@@ -133,6 +136,7 @@ class Gateway {
   void end_sessions();
   void end_session(Session& session);
   void drop(Session& session);
+  void too_long(Session& session);
   bool send_cancels_on_disconnect();
 
   GatewayOptions options_;
