@@ -4,7 +4,7 @@ A limit order book and matching engine in C++20: price-time priority, with limit
 (IOC) and cancel orders, built to be checked against a written specification and then made fast without changing
 a single event.
 
-**Status: day 3 of 5.** Day 1 built the specification ([DESIGN.md](DESIGN.md)), the shared types and text format,
+**Status: day 4 of 5.** Day 1 built the specification ([DESIGN.md](DESIGN.md)), the shared types and text format,
 the reference model that implements the rules literally, and the test kit around it (scenario files, a seeded random
 command stream, invariant checks, a minimizer for failing runs, two fuzz targets, a command-line tool, benchmarks,
 coverage, CI on Linux and macOS). Day 2 added the matching engine (price levels in a map, a FIFO queue per level, an
@@ -13,7 +13,11 @@ id index for cancels) and a differential harness that runs it against the refere
 file. Day 3 rebuilt the engine for speed without changing an event (`Book`: order nodes in a pool linked by index,
 intrusive FIFO levels, sorted level vectors, an open-addressing id table; nothing allocated once the book has room),
 kept day 2's as `MapBook`, the baseline, and put the engine on its own thread between two lock-free single-producer
-single-consumer rings, with latency percentiles measured from the sender's side. Day 4 adds the TCP gateway.
+single-consumer rings, with latency percentiles measured from the sender's side. Day 4 put a TCP order gateway in
+front of it (port 8107: clients' own ids mapped to the engine's, fills to each side, answers in line order, cancel on
+disconnect, back-pressure) and an L2 market-data feed behind it, built from the engine's events (snapshots, an update
+line per command for subscribers, gap detection), with `orderbook replay` for synthetic streams and a load generator
+that times each command from when it was due.
 
 ## Why it is built this way
 
@@ -50,14 +54,18 @@ flowchart LR
     E -- state --> C[check_book<br/>I1, I5]
 ```
 
-The engine's thread (day 3), as `EngineThread` runs it; day 4 puts a TCP gateway where the sender is:
+The system (day 4): the gateway's thread is the engine thread's one sender, and the depth feed follows the events:
 
 ```mermaid
 flowchart LR
-    S[Sender thread<br/>day 4: the gateway] -- "Request {sequence, command}" --> Q1[(SPSC ring<br/>16,384)]
+    C1[Client] -- "TCP lines: new, cancel, book, subscribe" --> G
+    C2[Client] -- TCP --> G
+    G["Gateway thread, poll(2)<br/>port 8107<br/>parse, map ids, route answers"] -- "Request {sequence, command}" --> Q1[(SPSC ring<br/>16,384)]
     Q1 --> E[Engine thread<br/>owns the Book]
     E -- "Report {sequence, event, last}" --> Q2[(SPSC ring<br/>16,384)]
-    Q2 --> S
+    Q2 --> G
+    G -- "each command and its events" --> F[DepthFeed<br/>L2 levels]
+    F -- "snapshots, update lines" --> G
 ```
 
 DESIGN.md has the full target system and the plan for each day.
@@ -71,6 +79,9 @@ DESIGN.md has the full target system and the plan for each day.
 | `include/orderbook/id_table.hpp` | The engine's open-addressing index from order id to node |
 | `include/orderbook/spsc_ring.hpp` | The lock-free single-producer single-consumer ring |
 | `include/orderbook/engine_thread.hpp`, `src/engine_thread.cpp` | The engine on its own thread, between two rings |
+| `include/orderbook/market_data.hpp`, `src/market_data.cpp` | The depth feed built from events, L2 snapshots, the subscriber (`L2Book`) |
+| `include/orderbook/gateway.hpp`, `src/gateway.cpp` | The TCP order gateway (its own library, `orderbook_gateway`) |
+| `tools/gateway_main.cpp` | The `orderbook_gateway` executable |
 | `include/orderbook/map_book.hpp`, `src/map_book.cpp` | Day 2's engine (`MapBook`), kept as the baseline (test kit) |
 | `include/orderbook/resting_order.hpp` | A resting order as both books report it |
 | `include/orderbook/reference_book.hpp` | The reference model |
@@ -80,11 +91,12 @@ DESIGN.md has the full target system and the plan for each day.
 | `include/orderbook/minimize.hpp` | Shrinks a failing command stream to the commands the failure needs |
 | `include/orderbook/differential.hpp` | Two books in lockstep: the first difference, shrunk to a scenario file |
 | `tools/orderbook_cli.cpp` | The `orderbook` command-line tool |
-| `tests/`, `bench/`, `fuzz/` | GoogleTest suite and scenario files; Google Benchmark suite and `bench/latency.cpp` (latency percentiles); libFuzzer targets |
+| `tests/`, `bench/`, `fuzz/` | GoogleTest suite and scenario files; Google Benchmark suite, `bench/latency.cpp` (latency percentiles) and `bench/loadgen.cpp` (the gateway's load generator); libFuzzer targets |
 | `scripts/gcc_check.sh` | Compiles the project with Homebrew's GCC, to catch GCC-only warnings before CI does |
+| `scripts/gateway_smoke.sh` | The gateway's executable end to end under the load generator, stopped with SIGINT (a CTest test) |
 
-The `orderbook` library holds the engine, its thread and rings, and needs only the standard library and threads;
-`orderbook_testkit` holds the reference model, day 2's engine and the checks, for tests, benchmarks and the tool.
+The `orderbook` library holds the engine, its thread and rings, and the depth feed, and needs only the standard
+library and threads; `orderbook_gateway` adds the TCP gateway (POSIX sockets); `orderbook_testkit` holds the reference model, day 2's engine and the checks, for tests, benchmarks and the tool.
 
 ### The engine
 
@@ -124,6 +136,45 @@ flagged. The ring (`SpscRing`) is lock-free: one release store publishes a slot 
 side caches the other's index, and the two indices live on separate 128-byte lines. The engine spins on an empty ring
 (with the core's pause hint); the sender must keep receiving while it waits to send (back-pressure both ways);
 `stop()` lets the engine apply everything already sent.
+
+### The gateway
+
+`Gateway` (DESIGN.md, "The gateway (day 4)") runs every TCP connection on one thread with `poll(2)`, and is the
+engine thread's single sender. Clients send lines in the scenario files' command format and get lines back:
+
+```
+$ nc 127.0.0.1 8107                    (after: build/release/orderbook_gateway)
+new 1 sell limit 10 @ 101
+accepted 1
+new 2 buy ioc 4 @ 101
+accepted 2
+fill 2 4 @ 101
+fill 1 4 @ 101
+book
+snapshot 2 bids - asks 101x6
+```
+
+(That transcript is one client trading with itself, so it gets both fills; two clients would each get their own.)
+
+- **Ids**: each client names its orders with its own ids, which must increase within its session; the gateway gives
+  each order the engine's next id, keeps a route back, and forgets it once the order is done. A trade is a `fill` to
+  each side under that side's own id, so no client learns another's.
+- **Order of answers**: a session's answers come in the order of its lines. The engine's answers already do; the
+  gateway's own (a rejection it makes, a snapshot, an `error`) wait behind the session's commands still in the engine.
+- **Sessions** end when the client closes its side and everything is answered and written, after a line over 256
+  bytes (once the answers before it and its `error` are written), or at once on a socket error or 4 MiB of answers
+  the client doesn't read. Its live orders are then cancelled.
+- **Back-pressure**: a full ring stops the handling of lines; a client with 1 MiB of unhandled input isn't read.
+
+### Market data
+
+`DepthFeed` (DESIGN.md, "Market data (day 4)") follows each command and its events on the gateway's thread and keeps
+the book by price level, never reading the engine. It numbers the commands; for each it gives the levels changed,
+each once, with the new total. `book [K]` answers with an L2 snapshot (`snapshot 7 bids 101x10 100x5 asks 102x7`);
+`subscribe` answers with a full snapshot at sequence N and then sends an `update` line for every command after N
+(`update 8 sell 101x0 buy 101x3`, or `update 9` for a command that changed no level). `L2Book` is a subscriber: it
+applies updates in sequence and refuses a gap. `orderbook replay` runs a synthetic stream through a book and the
+feed, printing snapshots (each checked against the book's own depth) and, with `--updates`, the update lines.
 
 ## The rules in one example
 
@@ -177,10 +228,11 @@ configure time as release tarballs pinned by SHA-256.
 make check
 ```
 
-Configures the `dev` preset (Debug, warnings as errors) into `build/dev`, builds everything, and runs the 246 tests.
+Configures the `dev` preset (Debug, warnings as errors) into `build/dev`, builds everything, and runs the 296 tests.
 `make asan` runs them under AddressSanitizer and UndefinedBehaviorSanitizer; `make tsan` runs the threaded ones (the
-ring's and the engine thread's) under ThreadSanitizer; `make bench` builds the `release` preset (-O3) and runs the
-benchmarks; `make latency` runs the latency percentiles (below); `make soak` runs the engine against the reference
+ring's, the engine thread's and the gateway's) under ThreadSanitizer; `make bench` builds the `release` preset (-O3)
+and runs the benchmarks; `make latency` runs the latency percentiles (below); `make loadgen` runs the gateway's load
+generator against a gateway in its own process (`LOADGEN_ARGS="--port 8107"` for one started separately); `make soak` runs the engine against the reference
 model on 1.04 billion random commands (below); `make coverage` reports the tests' line and branch coverage (Clang
 only); `make gcc-check` compiles the project's files with GCC 15, Debug and Release, warnings as errors.
 
@@ -193,6 +245,8 @@ build/dev/orderbook --book reference check tests/scenarios/*.txt   # the same on
 build/dev/orderbook gen 42 1000 | build/dev/orderbook run   # a random stream and what the book does with it
 build/dev/orderbook audit 1 100000 --target 500   # a random run with every invariant check on
 build/dev/orderbook diff 1 1000000 --target 500   # the engine against the reference model, event for event
+build/dev/orderbook gen 1 1000000 | build/dev/orderbook replay --every 100000   # L2 snapshots of a synthetic stream
+build/release/orderbook_gateway   # the TCP gateway on 127.0.0.1:8107, until Ctrl-C
 ```
 
 `run`'s transcript is itself a scenario file, ending with the book's whole state, so a failing random case can be
@@ -266,6 +320,75 @@ review, every file the harness writes also ends with checks of the expected book
 `= best asks ...`, `= resting N`, `= last-accepted N`; the example above, from before, ends with depth only), so the
 broken book fails it whichever part differed. Before, a difference in the best price, the number resting, the last
 accepted id or a queue's order shrank to a file whose events and depth were right, which the broken book passed.
+
+## Results (day 4)
+
+All on the Apple M3 (macOS 26.6.2, Apple Clang 21 at -O3) from the release build at `9f83b91`, **on battery** (28% to
+25%, Low Power Mode off, desktop apps open), between 10:54 and 10:59. Synthetic commands from `RandomFlow`. The
+gateway and the load generator talk over loopback TCP on this one machine.
+
+**The gateway, from the clients' side**, `orderbook_loadgen` (`make loadgen`): each command timed from when it was due
+to its acknowledgement (`accepted`/`rejected`, or `cancelled ... requested` for a cancel), in microseconds; 200,000
+timed commands a row, each row on fresh connections after an untimed warm-up to about 1,000 resting orders. Through a
+gateway in the load generator's process (10:54, load average 10.5 falling to 9.3 after a GCC build):
+
+| Mode | Connections | p50 | p90 | p99 | p99.9 | p99.99 | max | Sent over 50 µs late |
+|---|---|---|---|---|---|---|---|---|
+| One at a time (41k/s) | 1 | 23.0 | 31.3 | 36.2 | 63.5 | 89.5 | 146.4 | |
+| Paced 50k/s | 4 | 32.4 | 42.5 | 110.5 | 2,712 | 2,919 | 2,968 | 8 |
+| Paced 100k/s | 4 | 29.2 | 36.4 | 5,688 | 12,455 | 12,984 | 13,057 | 1 |
+| Paced 200k/s | 4 | 34.8 | 47.1 | 15,520 | 18,695 | 18,971 | 18,998 | 19 |
+| Saturated (2.70 M/s) | 4 | 1,345 | 1,484 | 1,526 | 2,066 | 2,066 | 2,066 | |
+
+The gateway as its own process on port 8107 (`build/release/orderbook_gateway --port 8107`, then `orderbook_loadgen
+--port 8107`; 10:56, load average 3.6), stopped afterwards with SIGINT (exit 0; `17 sessions, 787970 commands to the
+engine`):
+
+| Mode | Connections | p50 | p90 | p99 | p99.9 | p99.99 | max | Sent over 50 µs late |
+|---|---|---|---|---|---|---|---|---|
+| One at a time (37k/s) | 1 | 28.2 | 32.6 | 58.0 | 108.2 | 643.5 | 5,869 | |
+| Paced 50k/s | 4 | 29.4 | 39.7 | 68.5 | 1,517 | 1,942 | 1,988 | 0 |
+| Paced 100k/s | 4 | 27.1 | 34.6 | 8,357 | 15,125 | 15,671 | 15,724 | 0 |
+| Paced 200k/s | 4 | 28.0 | 38.7 | 17,955 | 21,083 | 21,373 | 21,411 | 590 |
+| Saturated (2.74 M/s) | 4 | 1,347 | 1,447 | 1,543 | 2,081 | 2,081 | 2,081 | |
+
+- **The round trip** (a command, its acknowledgement, the next) is 23 to 28 µs at the median, over loopback TCP
+  through two threads and two rings; day 3 measured the engine's thread alone at 166 ns one at a time, so nearly all
+  of it is the sockets: two sends, two receives and the polls between.
+- **Batched, the gateway is fast**: saturated, with up to 1,024 commands outstanding a connection, it answered 2.70 to
+  2.74 million commands a second: one every 365 to 370 ns, with the gateway's, the engine's and the load generator's
+  threads all on this machine. The latency there is queueing: 4,096 outstanding at 2.7 M/s is 1.5 ms by Little's law,
+  and the median was 1.35 ms.
+- **Paced one write a command, the tail is the open question.** The median stays at 27 to 35 µs at every rate, but
+  from 100,000 commands a second the p99 is in milliseconds (5.7 to 8.4 ms) and grows with the rate (15.5 to 18.0 ms
+  at 200k/s), on 1, 2 or 4 connections alike (at `bcfd52a`, 10:40: p99 3.6, 4.0 and 6.7 ms at 100k/s). The sender
+  was rarely late at 50k and 100k/s (0 to 8 sends over 50 µs; 19 and 590 at 200k/s), so the commands waited after
+  leaving it. A stall of some
+  milliseconds somewhere on the path (one of three spinning threads descheduled, or the gateway's thread waking from
+  `poll`) makes every command due during it wait, and the timing charges each; what stalls isn't traced.
+- A first run at `bcfd52a` (10:40, load average 4.5 with a review agent building) had paced medians of 34.8, 129.6 and
+  434 µs at 50k, 100k and 200k/s: discarded as disturbed, and the reason the rows above were run again.
+
+**What market data costs**, `make bench` (5 repetitions, medians; 10:57 to 10:59, load average 2.7 falling to 2.1):
+`BM_EngineAndDepthFeed/N` is `BM_Engine/N`'s commands against the same book with the depth feed following every
+command, as the gateway runs them.
+
+| Resting at the start | Engine | Engine and feed | Per command | The feed's share |
+|---|---|---|---|---|
+| 7 | 96.7 M/s | 17.1 M/s | 10.3 → 58.4 ns | +48 ns |
+| 70 | 77.2 M/s | 14.8 M/s | 13.0 → 67.4 ns | +54 ns |
+| 108 | 79.2 M/s | 15.5 M/s | 12.6 → 64.4 ns | +52 ns |
+| 240 | 85.0 M/s | 15.4 M/s | 11.8 → 64.9 ns | +53 ns |
+| 583 | 84.6 M/s | 15.3 M/s | 11.8 → 65.3 ns | +53 ns |
+| 5,410 | 53.6 M/s | 13.1 M/s | 18.7 → 76.4 ns | +58 ns |
+
+The feed's two standard maps (a hash map of the resting orders, a sorted map of levels a side) cost three to five
+times the engine itself, at 0.77 to 0.90 level updates a command. It runs on the gateway's thread, where a command
+costs hundreds of nanoseconds anyway, not on the engine's.
+
+**Replay**, `orderbook gen 1 1000000 > s.txt; orderbook replay s.txt --every 100000` (release; three runs, 10:59):
+1,000,000 commands (280,277 trades, 871,941 level updates, 10 snapshots each checked against the book) in 0.222 to
+0.225 s, 4.44 to 4.50 million commands a second including parsing the text and printing.
 
 ## Results (day 3)
 
@@ -443,11 +566,11 @@ core's.
 
 ## Tests
 
-246 tests (`make check`), each a separate CTest test. CI runs them on four jobs (GCC 14 and Clang 18 on Ubuntu, Apple
+296 tests (`make check`), each a separate CTest test. CI runs them on four jobs (GCC 14 and Clang 18 on Ubuntu, Apple
 Clang on macOS, each Debug and Release, and Clang under ASan and UBSan), runs the threaded ones under ThreadSanitizer
-on a fifth (`make tsan`), fuzzes on a sixth, and runs `make soak` with GCC 14 on a seventh: at `f833616`, `24 runs,
-1040000000 commands, in 71 s`. The first three also run the benchmarks and `orderbook_latency` briefly, as smoke
-tests.
+on a fifth (`make tsan`: the ring's, the engine thread's and the gateway's), fuzzes on a sixth, and runs `make soak`
+with GCC 14 on a seventh: at `f833616`, `24 runs, 1040000000 commands, in 71 s`. The first three also run the
+benchmarks, `orderbook_latency` and `orderbook_loadgen` briefly, as smoke tests.
 
 `make coverage` at `5a2c8c2` (day 2): 98.3% of lines (1,112 of 1,131) and 96.0% of branches (672 of 700); the engine
 (`src/book.cpp`) and the reference model are at 100% of both, and `src/scenario.cpp` misses only the fallback after a
@@ -470,6 +593,9 @@ branches. At `a900bb9`, 741 of 751 and 469 of 482; the second review found that 
 | `id_table_test.cpp` | The id table against `std::unordered_map` on random inserts and takes (every stored id looked up after every removal), in a 16-slot table where clusters wrap past the end (20 seeds) and in larger ones; growth by doubling at half full; moves and copies |
 | `allocation_test.cpp` (own binary) | Counts calls to `operator new` while a book applies 200,000 random commands: 0 for the engine with room, in four mixes; 169,627 to 211,721 for day 2's engine, the control; 4 past its room, as the pool, index and levels grow once; 0 for a copy of a book with room. And fails each allocation of each command of a random stream in turn (3,917 failures over 3,000 commands): the book stays well-formed, every resting order can be cancelled, and the events so far are the start of the command's events |
 | `spsc_ring_test.cpp` | Full and empty, order over thousands of laps; two threads passing 300,000 and 1,000,000 values through rings of 4 and 1,024, as integers (for ThreadSanitizer) and as 64-byte structs whose fields must agree |
+| `market_data_test.cpp` | The depth feed on hand-worked cases (a sweep through four makers at two levels gives two updates, then the remainder's level); events that don't fit its record throw (ten kinds); after every command of random streams in five mixes on the engine and one on the reference model (110,000 commands), the feed's levels and a subscriber's equal the book's depth and no update names a level twice; a subscriber joining from a snapshot halfway ends equal to one that followed from the start; gaps and repeats are refused |
+| `gateway_test.cpp` | The gateway over real connections on a free port: fills to both sides under their own ids; the id rules; the engine's rejections under client ids; answers in line order with the gateway's own among them; `book`; cancel on disconnect, of exactly the orders still live; a client that half-closes; a reset; long lines; 1,000 lines in one read; a client that doesn't read is dropped; a subscriber's book, from its snapshot and an update line per command, equals the gateway's; 20,000 random commands answered line for line as a book answers them directly |
+| `review5/` | The day-4 review's reproductions: cancels on disconnect that waited, a long line's error ahead of earlier answers, a long partial line behind a full turn, the limit and `\r\n` |
 | `engine_thread_test.cpp` | 100,000 random commands in three mixes through the engine's thread give exactly the events and final state of the book called directly; stopping applies everything sent; stopping returns when the engine waits on a full ring of reports; destroying a running engine joins it |
 | `scenario_test.cpp` + `scenarios/*.txt` | Fifteen hand-written scripts, one or more per rule (the fifteenth pins queue order with state checks), on all three books; the parser's and runner's error reports, with line numbers, for depth and state checks |
 | `differential_test.cpp` | The engine against the reference model, every event of 720,000 random commands in seven mixes (the default, long queues at three prices, one-lot orders, quantities to 10^9 on a nearly empty book, 30% spoiled orders, a deep book of 900+ levels a side, prices at both bounds), states compared at checkpoints (after every command in three mixes); the engine's events under the Audit and its state under `check_book` too |
@@ -479,8 +605,45 @@ branches. At `a900bb9`, 741 of 751 and 469 of 482; the second review found that 
 | `check_test.cpp` | The reference model passes `Audit` and `check_book` over 160,000 random commands: four seeds of the default mix, and mixes with long queues at three prices (every check after every command), quantities up to 10^9 on a near-empty book, and 30% invalid orders; each check is shown to fail on events or a state that break its rule; a pinned hash of the reference model's events and book (I7) |
 | `review/*.cpp`, `review2/` | The two day-1 reviews' reproductions, kept as regression tests: 0-lot trades after a fill; a stream starting near a price bound; double spoils that broke one rule; an empty transcript `check` rejected |
 | `minimize_test.cpp` | The minimizer keeps exactly what a failure needs, in order, and is 1-minimal; 1,000 commands shrink in under 100 replays (56); random runs that catch two deliberately broken books shrink to 3 commands and to 1 |
-| CLI tests (`tests/CMakeLists.txt`) | `check` passes the scenarios on both books and reports a wrong one with its line and the actual events; a 2,000-command transcript passes its own check, and so does an empty one; each book passes the other's transcript of 5,000 commands; `audit` passes 20,000 commands on each book; `diff` agrees on 100,000; the tool built around two broken books reports a difference, exits 1, prints a scenario that passes with `--book reference` and fails on the engine, and compares states as often as `--every` says; options out of range and bad arguments are reported; each exit code exactly (0, 1, 2) |
+| `scripts/gateway_smoke.sh` (CTest) | `orderbook_gateway` on a free port serves the load generator (2,000 commands, 4 connections), stops on SIGINT with exit 0 and counts the 4 sessions |
+| CLI tests (`tests/CMakeLists.txt`) | `replay` gives exactly the expected update lines and snapshots for a hand-worked stream, the same output on both books for a random one, and fails on the tool built around the price-bug book (at the command `diff` finds) and the short-depth book; `check` passes the scenarios on both books and reports a wrong one with its line and the actual events; a 2,000-command transcript passes its own check, and so does an empty one; each book passes the other's transcript of 5,000 commands; `audit` passes 20,000 commands on each book; `diff` agrees on 100,000; the tool built around two broken books reports a difference, exits 1, prints a scenario that passes with `--book reference` and fails on the engine, and compares states as often as `--every` says; options out of range and bad arguments are reported; each exit code exactly (0, 1, 2) |
 | Fuzz targets (`fuzz/`, in CTest) | Both on 2,000 seeded random inputs each; the text target on the scenario files whole and on each of their 465 lines, so its round-trip checks run. The book target runs both books in lockstep, comparing events and states after every command, with the Audit and `check_book` on the engine. CI's libFuzzer job runs each for 60 s instead: at `30677d4`, 1,213,736 text inputs and 192,251 book inputs (both books), no findings (at `a900bb9`, the reference model alone, 232,863 book inputs). Locally, the release build's standalone driver ran 500,000 random book inputs in 301 s at `b3af16c`, no findings |
+
+## Review of day 4
+
+One background agent reviewed the gateway, the depth feed and replay at `e88cabe` (10:31, 14 minutes) in a `.scratch/`
+worktree, worded as a correctness review, and wrote a failing test for each bug it found
+(`tests/review5/gateway_review_test.cpp`); each failed here before its fix (`4ea807d`):
+
+1. **Cancels on disconnect waited for another client**: queued after the loop had decided it was idle, they sat until
+   some socket woke it, and every `book` until then showed the departed client's orders.
+2. **A long line's error jumped ahead of the answers to earlier lines**, which were then lost with the session: the
+   client never saw `accepted 1`. The error now waits in line order and the session ends once it is written.
+3. **A partial line already past the limit, behind a full turn of 256 lines**, was never checked again, and the
+   session stayed open.
+4. **The 256-byte limit counted the `\r` of `\r\n`.**
+
+Its mutation checks listed 16 changes no test noticed (11 in the gateway, 5 in the feed; 5 more it judged equivalent).
+Tests now catch 12 of them (`af9d7d4`: forgetting finished orders, seen as extra cancels on disconnect; more than a
+turn of lines in one read, with and without a half-close; a client that doesn't read; five inconsistent events for the
+feed), plus a test of a reset connection. A script then re-ran those 12, the reversal of each of the 4 fixes, and the
+receive-error one (17 mutations), restoring from a copy each time: 16 fail a test. The one left, not dropping a session
+on a receive error, changes nothing here: after a reset the next receive returns 0, and the session ends at end of
+file. Still untested: stopping reading at the input limit, a turn cut short that should keep the loop from sleeping,
+and reading on a hang-up as well as on input. Its docs points (the header's promises about errors and back-pressure,
+the stats' meaning, the missing DESIGN.md sections) are fixed.
+
+Found while building:
+
+- `orderbook_gateway` started with `&` never stopped on SIGINT: a non-interactive shell starts background jobs with
+  SIGINT ignored, and an ignored signal is discarded, so `sigwait` never returned. The end-to-end test hung until
+  CTest's timeout; `main` now resets both signals' dispositions before blocking them (`bcfd52a`).
+- CI's GCC 14 job (Linux) failed on two warnings GCC 15 on this Mac can't see: a cast to `nfds_t`, which is `unsigned
+  long` on Linux and `unsigned int` on macOS (`-Wuseless-cast`), and `errno == EAGAIN || errno == EWOULDBLOCK`
+  (`-Wlogical-op`: the two are equal, and glibc's `errno` is a const function GCC can compare). Fixed in `f7f7baa`.
+- The slow-reader test passed here and failed on every Linux job: there the kernels absorbed all 40,000 answers, so
+  the gateway's own output never passed its limit. The test now sends until the connection breaks (`6de7966`).
+- `make gcc-check` caught a shadowed variable in `replay` before it was pushed (`0f6e995`).
 
 ## Review of day 1
 
@@ -601,6 +764,17 @@ that accepted trailing words (`7681692` and the commit after it).
   under the same id, and tests can compare the whole book before and after.
 - **One `trade` event per fill**, at the maker's price, naming both orders; a limit order's rest is silent. The
   gateway turns each into a `fill` for each side, under that side's own id.
+- **Market data from the events, not the engine** (day 4). The depth feed keeps its own record from each command and
+  its events, so the engine's thread does nothing more, and a feed that disagrees with its book is caught (it throws;
+  `replay` checks every snapshot against the book).
+- **A text protocol** (day 4), the scenario files' command format, so the gateway reuses a parser fuzzed since day 1
+  and can be driven with `nc`. A binary protocol would save the parse and the formatting, a small part of a round trip
+  that is 23 to 28 µs of sockets here.
+- **One thread with `poll` for every connection** (day 4): the engine's thread takes one sender, and one thread owns
+  every session's state, so nothing in the gateway is shared or locked.
+- **Answers in line order** (day 4): the gateway's own answers wait behind the session's commands in the engine,
+  which costs a client that pipelines nothing and gives it one simple rule.
+- **Cancel on disconnect** (day 4): an order no client can cancel any more shouldn't rest.
 - **The order of the validation checks is part of the specification**, so two implementations agree on the reason
   for a rejection, not just on the rejection.
 - **A deliberately naive reference model** as the oracle, instead of trusting the engine's own unit tests: the
@@ -668,8 +842,15 @@ that accepted trailing words (`7681692` and the commit after it).
   use integers for that reason (DESIGN.md, "Testing").
 - Shrinking a difference keeps the stream up to it in memory and replays it, about n log n times when chunks fall
   away easily; a difference found late in a long `orderbook diff` run takes correspondingly long to shrink.
-- The benchmark numbers above were measured on battery with other apps open (day 2's during a video call); day 3's
-  are to be measured on power with nothing else running.
+- The benchmark numbers above were measured on battery with other apps open (day 2's during a video call), and day 4's
+  with the battery between 28% and 25%; they are to be measured again on power with nothing else running.
+- The gateway (day 4) has no authentication, TLS, rate limits or self-trade prevention, and listens on loopback by
+  default; its protocol is text, in ticks and lots. Paced one command a write, its latency tail from 100,000 commands a
+  second is in milliseconds, and what stalls isn't known. A session ended for a long line is closed with whatever the
+  client sent after the line unread, so the client may see a reset rather than an end of file. Out of descriptors,
+  `accept` fails each turn and the loop spins until one is free.
+- The depth feed uses standard containers, so it allocates as orders rest and levels appear, and costs about 50 ns a
+  command, three to five times the engine (it runs on the gateway's thread).
 
 ## License
 
