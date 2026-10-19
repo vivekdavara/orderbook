@@ -345,7 +345,8 @@ flowchart LR
 
 - **One thread for every connection** (`include/orderbook/gateway.hpp`): non-blocking sockets and `poll(2)`, and the
   single sender `EngineThread` asks for. While commands are in the engine it polls without waiting and comes back for
-  the reports; when none are, it blocks in `poll` until a socket, or `stop()`'s pipe, wakes it.
+  the reports; when none are, it blocks in `poll` until a socket, or `stop()`'s pipe, wakes it (`GatewayOptions::spin`
+  never blocks: it measured the same, README "Results (day 4)").
 - **A text protocol**, a line each way per message: `new` and `cancel` in the text format of the scenario files (the
   parser fuzzed since day 1), `book [levels]` and `subscribe`; the answers are `accepted`, `rejected`, `fill`,
   `cancelled`, `snapshot`, `update` and `error`. It can be driven by hand with `nc`.

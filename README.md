@@ -366,11 +366,16 @@ engine`):
   leaving it. A stall of some
   milliseconds somewhere on the path makes every command due during it wait, and the timing charges each; what stalls
   isn't traced. One suspect is ruled out: with the gateway's thread spinning instead of blocking in `poll`
-  (`orderbook_loadgen --spin on --rate 100000 --rate 200000`, against `--spin off`, alternated twice each at `a1cc2ce`'s
-  code, 11:11, load average 3.4 to 3.6), the p99 was 7.2 and 7.3 ms at 100k/s (6.7 and 7.5 without) and 17.8 and
-  19.1 ms at 200k/s (18.9 and 16.1 without): no difference. Left: one of the three spinning threads (the engine's,
-  the gateway's, the load generator's) descheduled or moved to an efficiency core, and the load generator's own
-  receive path.
+  (`orderbook_loadgen --spin on --rate 100000 --rate 200000`, against `--spin off`, alternated twice each with
+  `e14f983`'s code, 11:11, load average 3.4 to 3.6), the p99 was 7.2 and 7.3 ms at 100k/s (6.7 and 7.5 without) and
+  17.8 and 19.1 ms at 200k/s (18.9 and 16.1 without): no difference. Left: one of the three spinning threads (the
+  engine's, the gateway's, the load generator's) descheduled or moved to an efficiency core, and the load generator's
+  own receive path. Contention for cores matters: two load generators at 50k/s each against the gateway on 8107 (8
+  connections, 100k/s together; 11:12, load average 2.6 to 2.8), four spinning threads on this 4+4-core M3, had medians
+  of 217 and 224 µs, eight times one load generator's at 100k/s (26.3 and 27.0 µs, run before and after), with p99 0.42
+  and 0.43 ms against 7.5 and 8.5, and p99.9 still 13.6 ms. (The gateway counted 1 session dropped that time: a load
+  generator closes its connections once every command is acknowledged, while fills may still be on their way, and a
+  write to a closed connection ends the session.)
 - A first run at `bcfd52a` (10:40, load average 4.5 with a review agent building) had paced medians of 34.8, 129.6 and
   434 µs at 50k, 100k and 200k/s: discarded as disturbed, and the reason the rows above were run again.
 
