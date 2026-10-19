@@ -240,8 +240,8 @@ int replay(std::istream& in, const ReplayArgs& args) {
     std::uint64_t sequence = 0;
     try {
       sequence = feed.apply(*command, events, updates);
-    } catch (const std::logic_error& error) {
-      std::cerr << "line " << number << ": " << error.what() << "\n";
+    } catch (const std::logic_error& disagreement) {
+      std::cerr << "line " << number << ": " << disagreement.what() << "\n";
       return 1;
     }
     trades += static_cast<std::uint64_t>(
