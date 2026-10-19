@@ -8,6 +8,7 @@
 #include <gtest/gtest.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
+#include <sys/resource.h>
 #include <sys/socket.h>
 #include <sys/time.h>
 #include <unistd.h>
@@ -17,6 +18,8 @@
 #include <cerrno>
 #include <chrono>
 #include <cstddef>
+#include <memory>
+#include <system_error>
 #include <cstdint>
 #include <string>
 #include <string_view>
@@ -456,6 +459,47 @@ TEST(Gateway, ASubscriberFollowsTheBookFromItsSnapshotAndAnUpdateForEveryCommand
   const Lines last = subscriber.ask("book 1\n", 2);  // one update line, not two, then the book
   EXPECT_EQ(last[0], "update " + next + " buy 50x1");
   EXPECT_TRUE(last[1].starts_with("snapshot " + next + " ")) << last[1];
+}
+
+TEST(Gateway, AnAddressItCantHaveIsAnError) {
+  EXPECT_THROW(Gateway(GatewayOptions{.host = "not-an-address", .port = 0}), std::system_error);
+  const Gateway first(GatewayOptions{.port = 0});
+  EXPECT_THROW(Gateway(GatewayOptions{.port = first.port()}), std::system_error);  // listening already
+}
+
+// More commands in one turn than the two rings hold. 100 clients each send 256 IOC orders before the gateway's loop
+// starts (it listens from its constructor), so one turn hands the engine 25,600 commands without draining a report.
+// Each makes two reports (accepted, then cancelled unfilled on an empty book), so the engine stops once the ring of
+// reports holds 8,192 commands' worth, the ring of requests fills behind it with 16,384 more, and the last 1,024 must
+// wait for room. None may be lost or answered twice: every client gets every answer, in order.
+TEST(Gateway, CommandsThatFindTheRingFullWaitForRoom) {
+  constexpr int kClients = 100;
+  rlimit limit{};
+  ::getrlimit(RLIMIT_NOFILE, &limit);
+  if (limit.rlim_cur < 2 * kClients + 50) GTEST_SKIP() << "needs " << 2 * kClients + 50 << " descriptors";
+  Gateway gateway(GatewayOptions{.port = 0});
+  std::string orders;
+  for (int i = 1; i <= 256; ++i) orders += "new " + std::to_string(i) + " buy ioc 1 @ 100\n";
+  std::vector<std::unique_ptr<Client>> clients;
+  for (int c = 0; c < kClients; ++c) {
+    clients.push_back(std::make_unique<Client>(gateway.port()));
+    clients.back()->send(orders);
+  }
+  std::thread loop([&] { gateway.run(); });
+  for (const auto& client : clients) {
+    const Lines answers = client->lines(512);
+    ASSERT_EQ(answers.size(), 512U);
+    for (int i = 1; i <= 256; ++i) {
+      const auto at = static_cast<std::size_t>(2 * (i - 1));
+      ASSERT_EQ(answers[at], "accepted " + std::to_string(i));
+      ASSERT_EQ(answers[at + 1], "cancelled " + std::to_string(i) + " 1 unfilled");
+    }
+  }
+  clients.clear();
+  gateway.stop();
+  loop.join();
+  EXPECT_EQ(gateway.stats().commands, 25'600U);
+  EXPECT_GT(gateway.stats().ring_full, 0U);  // some did wait for room
 }
 
 // The answers a client should get for its commands, from a book applied directly: with one session sending the ids
