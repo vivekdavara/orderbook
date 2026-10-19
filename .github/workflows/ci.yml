@@ -51,6 +51,8 @@ jobs:
         run: ./build/release/bench/orderbook_bench --benchmark_min_time=0.01s
       - name: Run the latency tool briefly (a smoke test; the numbers aren't used)
         run: ./build/release/bench/orderbook_latency 20000
+      - name: Run the load generator briefly through an in-process gateway (a smoke test; the numbers aren't used)
+        run: ./build/release/bench/orderbook_loadgen --commands 5000
 
   sanitizers:
     name: Linux, Clang 18, ASan + UBSan

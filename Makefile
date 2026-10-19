@@ -1,7 +1,7 @@
 # Thin wrappers over the CMake presets (CMakePresets.json). `make check` is what every commit must pass.
 JOBS ?= $(shell sysctl -n hw.ncpu 2>/dev/null || nproc)
 
-.PHONY: check asan tsan bench latency soak coverage gcc-check clean
+.PHONY: check asan tsan bench latency loadgen soak coverage gcc-check clean
 
 # Debug build with warnings as errors, then every test.
 check:
@@ -37,6 +37,15 @@ latency:
 	cmake --preset release >/dev/null
 	cmake --build --preset release -j $(JOBS) --target orderbook_latency
 	./build/release/bench/orderbook_latency $(COMMANDS)
+
+# The TCP gateway from the clients' side (bench/loadgen.cpp): each command timed from when it was due to its
+# acknowledgement, one at a time, paced and saturated, through a gateway in the same process; LOADGEN_ARGS="--port
+# 8107" drives one started with build/release/orderbook_gateway instead.
+LOADGEN_ARGS ?=
+loadgen:
+	cmake --preset release >/dev/null
+	cmake --build --preset release -j $(JOBS) --target orderbook_loadgen orderbook_gateway_server
+	./build/release/bench/orderbook_loadgen $(LOADGEN_ARGS)
 
 # The engine against the reference model on 1.04 billion random commands in six mixes, every event compared, from the
 # optimised build (scripts/diff_soak.sh). Exits 1 on a difference and prints its shrunk scenario file.
