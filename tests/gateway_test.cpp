@@ -461,6 +461,29 @@ TEST(Gateway, ASubscriberFollowsTheBookFromItsSnapshotAndAnUpdateForEveryCommand
   EXPECT_TRUE(last[1].starts_with("snapshot " + next + " ")) << last[1];
 }
 
+// Big answers to a client that reads through a small receive buffer: the gateway writes them a piece at a time,
+// moving what is left to the front of its buffer once 64 KiB have gone. 20 rounds of 100 snapshots of 1,000 levels
+// (about 7 KB each, 14 MB in all): every one must arrive whole and in order.
+TEST(Gateway, LargeAnswersToASlowReaderArriveWhole) {
+  RunningGateway gateway;
+  Client trader(gateway.port());
+  std::string orders;
+  for (int i = 1; i <= 1'000; ++i) orders += "new " + std::to_string(i) + " buy limit 1 @ " + std::to_string(1'000 + i) + "\n";
+  trader.send(orders);
+  ASSERT_EQ(trader.lines(1'000).back(), "accepted 1000");
+  const std::string expected = trader.ask("book 1000\n", 1).front();
+  ASSERT_TRUE(expected.starts_with("snapshot 1000 bids 2000x1 1999x1 ")) << expected.substr(0, 60);
+  Client reader(gateway.port(), /*receive_buffer=*/4'096);
+  std::string requests;
+  for (int i = 0; i < 100; ++i) requests += "book 1000\n";
+  for (int round = 0; round < 20; ++round) {
+    reader.send(requests);
+    const Lines answers = reader.lines(100);
+    ASSERT_EQ(answers.size(), 100U);
+    for (const std::string& answer : answers) ASSERT_EQ(answer, expected) << "round " << round;
+  }
+}
+
 TEST(Gateway, ASpinningGatewayAnswersTheSame) {
   GatewayOptions options{.port = 0};
   options.spin = true;  // never blocks in poll
