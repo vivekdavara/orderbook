@@ -157,6 +157,15 @@ add_test(NAME cli.broken_depth.replay_fails_when_the_books_depth_differs_from_th
   test $? -eq 1 && grep -q \"levels are '.*' and the book's\" \"$3\"" sh
           $<TARGET_FILE:orderbook_cli> $<TARGET_FILE:orderbook_cli_broken_depth> ${CMAKE_CURRENT_BINARY_DIR}/short_replay.err)
 
+# The gateway's executable end to end: it serves the load generator over TCP, stops on SIGINT and prints its counts.
+# The load generator is a benchmark target, so only where benchmarks are built (not under the sanitizers).
+if(ORDERBOOK_BUILD_BENCHMARKS)
+  add_test(NAME gateway.the_executable_serves_the_load_generator_and_stops_on_sigint
+    COMMAND ${PROJECT_SOURCE_DIR}/scripts/gateway_smoke.sh $<TARGET_FILE:orderbook_gateway_server>
+            $<TARGET_FILE:orderbook_loadgen>)
+  set_tests_properties(gateway.the_executable_serves_the_load_generator_and_stops_on_sigint PROPERTIES TIMEOUT 120)
+endif()
+
 # The second day-1 review's reproductions of CLI bugs.
 include(${CMAKE_CURRENT_SOURCE_DIR}/review2/cli_tests.cmake)
 

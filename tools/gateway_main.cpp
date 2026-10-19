@@ -16,6 +16,7 @@
 
 #include <charconv>
 #include <cinttypes>
+#include <csignal>
 #include <cstdint>
 #include <cstdio>
 #include <exception>
@@ -56,7 +57,10 @@ int main(int argc, char** argv) {
   }
 
   // SIGINT and SIGTERM are blocked in every thread (the gateway's and the engine's inherit this mask) and waited for
-  // on this one, so no handler runs inside the loop.
+  // on this one, so no handler runs inside the loop. Their dispositions are reset first: a signal that is ignored is
+  // discarded, never left pending for sigwait, and a non-interactive shell starts `&` jobs with SIGINT ignored.
+  std::signal(SIGINT, SIG_DFL);
+  std::signal(SIGTERM, SIG_DFL);
   sigset_t signals;
   sigemptyset(&signals);
   sigaddset(&signals, SIGINT);
