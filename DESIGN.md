@@ -442,7 +442,64 @@ flowchart LR
   `bench/latency.cpp`): each command timed alone in one thread, and the engine's thread timed from the sender's side,
   one command at a time, paced at a fixed rate (timed from when each command was due, so a held-up sender counts its
   wait), and saturated. **The gateway's latency** (`make loadgen`, `bench/loadgen.cpp`): from the clients' side over TCP, each
-  command from when it was due to its acknowledgement, one at a time, paced and saturated.
+  command from when it was due to its acknowledgement, one at a time, paced and saturated. **Histograms** (day 5,
+  `make histograms`): both tools write each row's histogram with `--csv`, and `scripts/plot_latency.py` draws the
+  figures in `docs/`; a CTest test draws them from brief runs and parses each back. The load generator's `--trace`
+  writes every timed command, and `scripts/trace_tail.py` groups the slow ones by when they were due.
+
+## Measuring and the release (day 5)
+
+Day 5 changes no part of the engine, its thread or the gateway. It adds what the measuring tools write, and the
+version.
+
+**The histogram** (`bench/latency_histogram.hpp`, header-only, shared by both tools). Log-linear buckets as in
+HdrHistogram: values below 64 ns have a bucket each; above, a value v in the doubling [2^k, 2^(k+1)), k ≥ 6, falls in
+one of 32 buckets of width 2^(k-5), chosen by its top six bits:
+
+```
+bucket_of(v) = v                                  if v < 64
+             = e * 32 + (v >> e), e = k - 5       otherwise (so the first such bucket is 64)
+lower_of(b)  = (b mod 32 + 32) << (b / 32 - 1)    for b >= 64
+upper_of(b)  = lower_of(b) + 2^(b / 32 - 1)
+```
+
+A bucket is at most 1/32 of its lower bound wide, the bounds are whole nanoseconds and contiguous, and the largest
+int64 sample falls in bucket 1,887, which ends at 2^63. The tables' percentiles don't use the buckets: they are nearest
+ranks of the sorted samples (`at_quantile`: the smallest sample with at least a fraction q at or below it).
+
+**The CSV file** (`--csv FILE`): a header, then a line for each non-empty bucket of each row,
+
+```
+section,row,size,lower_ns,upper_ns,count
+engine thread,paced 1M/s,583,208,212,618954
+gateway,paced 200k/s,4,1015808,1032192,11
+```
+
+(two lines of `docs/data/run1`: 618,954 of the engine thread's paced commands took 208 to 211 ns, and 11 of the
+gateway's took 1,015,808 to 1,032,191 ns).
+
+`section` is `one thread`, `engine thread` or `gateway`; `row` the row's name without the rate it reached; `size` the
+orders resting after the row's warm-up (`orderbook_latency`, the same on every book) or the connections
+(`orderbook_loadgen`). Names may not hold commas, quotes or line breaks; a writer refuses them even without a file, so
+a run without `--csv` checks them too.
+
+**The figures** (`scripts/plot_latency.py LATENCY_CSV LOADGEN_CSV OUT_DIR`, Python's standard library only): latency
+by percentile for the engine's thread (the middle book size), for each book's own time a command (the largest) and
+for the gateway, each bucket drawn at its lower bound on log axes from the median to the slowest command; and the
+gateway's rows as shares of commands in bins of an eighth of a doubling, with the share on a log axis too, so a tail
+of a few commands a bin shows beside a mode of a fifth of them. Colours are the first four slots of a categorical
+palette checked for colour-vision deficiency, with dark-mode steps. Each file is parsed back as XML before it counts as
+written.
+
+**The trace** (`orderbook_loadgen --trace FILE`): `row,index,connection,due_us,latency_us` for every timed command,
+`due_us` from the row's start (when it was sent, for rows that aren't paced). `scripts/trace_tail.py FILE` groups the
+commands slower than 1 ms into episodes (due less than 5 ms apart) and prints each row's percentiles with its first 50
+and 100 ms left out. README "Results (v1.0.0)" has what it found.
+
+**The version**: `project(orderbook VERSION ...)` in CMakeLists.txt is the one place it is written; `configure_file`
+turns `cmake/version.hpp.in` into `include/orderbook/version.hpp` in the build tree, and `orderbook version` prints
+it with the compiler, the C++ standard, the build type and whether assertions are on. A CTest test compares its first
+line with `PROJECT_VERSION`.
 
 ## Plan
 
@@ -452,4 +509,4 @@ flowchart LR
 | 2 | The matching engine (price levels, FIFO per level, trade events), differential tests against the reference. Done. |
 | 3 | Performance: intrusive lists, object pools, no allocation on the hot path; a lock-free SPSC ring; benchmarks (orders/s, latency percentiles). Done. |
 | 4 | Replay of a synthetic market-data stream, L2 snapshots, the TCP gateway (8107) with a load generator. Done. |
-| 5 | Latency histograms, README with results, WALKTHROUGH.md, v1.0.0. |
+| 5 | Latency histograms, README with results, WALKTHROUGH.md, v1.0.0. Done. |
