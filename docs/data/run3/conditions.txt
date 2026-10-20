@@ -1,0 +1,2 @@
+start 11:00:46; load averages: 4.73 4.89 4.97; -InternalBattery-0 (id=22282339)	69%; discharging; 2:41 remaining present: true
+end 11:01:07; load averages: 5.34 5.01 5.01; -InternalBattery-0 (id=22282339)	68%; discharging; 2:31 remaining present: true

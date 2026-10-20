@@ -1,0 +1,35 @@
+orderbook_latency: 1000000 timed commands a row, RandomFlow seed 42 (synthetic)
+clock: steady_clock, smallest step seen 41 ns, 14.6 ns a read (10000000 reads in a row)
+
+One thread, each command timed alone (ns, with one clock read):
+book                        resting     p50     p90     p99   p99.9   p99.99      max     mean
+reference model                  70      42      84     250     833     1125  1133292     57.1
+day 2's engine (MapBook)         70      42      84     167     250     1000    26709     52.9
+engine                           70      41      42      42      84      167     2083     27.0
+reference model                 583     208     375     792    1166     1459     6292    222.1
+day 2's engine (MapBook)        583      42      84     166     250      292     2500     45.0
+engine                          583      41      42      42      84      167     3250     23.0
+reference model                5410    1334    2500    5417    8041    10542    21084   1529.3
+day 2's engine (MapBook)       5410      42      84     167     250      334     4625     52.6
+engine                         5410      41      42      83      84      167     1500     23.5
+
+The engine on its own thread, from sending a command to receiving its last event (ns):
+mode                        resting     p50     p90     p99   p99.9   p99.99      max     mean
+one at a time                    66     167     209     250     333      375    13958    182.0
+paced 1M/s (got 1.00M/s)         66     209     250     292    1792     7459    20209    229.2
+                           sent over 5 us late: 96; slower than 5 us: 389
+paced 5M/s (got 5.00M/s)         66     191     241     275    3883    78408    96658    230.6
+                           sent over 5 us late: 655; slower than 5 us: 828
+saturated (15.51M/s)             66     292     375     417   16375    27708    29334    339.3
+one at a time                   562     167     209     292     625     6459   126667    185.6
+paced 1M/s (got 1.00M/s)        562     209     209     417    9500    29375    56042    227.6
+                           sent over 5 us late: 881; slower than 5 us: 2252
+paced 5M/s (got 5.00M/s)        562     183     242     275    1958     6725    12892    199.2
+                           sent over 5 us late: 152; slower than 5 us: 316
+saturated (13.78M/s)            562     333     375     459   10334    12958    13959    353.6
+one at a time                  4796     167     209     291     333      416     8208    182.3
+paced 1M/s (got 1.00M/s)       4796     208     250     291    1833     7166    25708    220.8
+                           sent over 5 us late: 100; slower than 5 us: 340
+paced 5M/s (got 5.00M/s)       4796     191     241     275    1808     6775    13950    200.1
+                           sent over 5 us late: 97; slower than 5 us: 319
+saturated (13.78M/s)           4796     333     375     459   10583    21042    22833    347.5

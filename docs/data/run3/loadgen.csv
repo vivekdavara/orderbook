@@ -1,0 +1,977 @@
+section,row,size,lower_ns,upper_ns,count
+gateway,one at a time,1,10496,10752,4
+gateway,one at a time,1,10752,11008,9
+gateway,one at a time,1,11008,11264,24
+gateway,one at a time,1,11264,11520,34
+gateway,one at a time,1,11520,11776,59
+gateway,one at a time,1,11776,12032,147
+gateway,one at a time,1,12032,12288,178
+gateway,one at a time,1,12288,12544,285
+gateway,one at a time,1,12544,12800,439
+gateway,one at a time,1,12800,13056,639
+gateway,one at a time,1,13056,13312,707
+gateway,one at a time,1,13312,13568,541
+gateway,one at a time,1,13568,13824,431
+gateway,one at a time,1,13824,14080,420
+gateway,one at a time,1,14080,14336,536
+gateway,one at a time,1,14336,14592,333
+gateway,one at a time,1,14592,14848,243
+gateway,one at a time,1,14848,15104,239
+gateway,one at a time,1,15104,15360,367
+gateway,one at a time,1,15360,15616,535
+gateway,one at a time,1,15616,15872,1040
+gateway,one at a time,1,15872,16128,2144
+gateway,one at a time,1,16128,16384,3195
+gateway,one at a time,1,16384,16896,7152
+gateway,one at a time,1,16896,17408,5413
+gateway,one at a time,1,17408,17920,5763
+gateway,one at a time,1,17920,18432,5461
+gateway,one at a time,1,18432,18944,3121
+gateway,one at a time,1,18944,19456,2154
+gateway,one at a time,1,19456,19968,2160
+gateway,one at a time,1,19968,20480,2206
+gateway,one at a time,1,20480,20992,3269
+gateway,one at a time,1,20992,21504,5484
+gateway,one at a time,1,21504,22016,5999
+gateway,one at a time,1,22016,22528,4357
+gateway,one at a time,1,22528,23040,2837
+gateway,one at a time,1,23040,23552,2638
+gateway,one at a time,1,23552,24064,2770
+gateway,one at a time,1,24064,24576,2797
+gateway,one at a time,1,24576,25088,1986
+gateway,one at a time,1,25088,25600,880
+gateway,one at a time,1,25600,26112,583
+gateway,one at a time,1,26112,26624,433
+gateway,one at a time,1,26624,27136,756
+gateway,one at a time,1,27136,27648,1410
+gateway,one at a time,1,27648,28160,2186
+gateway,one at a time,1,28160,28672,2902
+gateway,one at a time,1,28672,29184,2945
+gateway,one at a time,1,29184,29696,4817
+gateway,one at a time,1,29696,30208,9097
+gateway,one at a time,1,30208,30720,15356
+gateway,one at a time,1,30720,31232,15055
+gateway,one at a time,1,31232,31744,13280
+gateway,one at a time,1,31744,32256,11329
+gateway,one at a time,1,32256,32768,7910
+gateway,one at a time,1,32768,33792,14602
+gateway,one at a time,1,33792,34816,10783
+gateway,one at a time,1,34816,35840,3984
+gateway,one at a time,1,35840,36864,1171
+gateway,one at a time,1,36864,37888,632
+gateway,one at a time,1,37888,38912,332
+gateway,one at a time,1,38912,39936,242
+gateway,one at a time,1,39936,40960,159
+gateway,one at a time,1,40960,41984,99
+gateway,one at a time,1,41984,43008,86
+gateway,one at a time,1,43008,44032,59
+gateway,one at a time,1,44032,45056,45
+gateway,one at a time,1,45056,46080,46
+gateway,one at a time,1,46080,47104,36
+gateway,one at a time,1,47104,48128,23
+gateway,one at a time,1,48128,49152,32
+gateway,one at a time,1,49152,50176,23
+gateway,one at a time,1,50176,51200,15
+gateway,one at a time,1,51200,52224,14
+gateway,one at a time,1,52224,53248,15
+gateway,one at a time,1,53248,54272,19
+gateway,one at a time,1,54272,55296,15
+gateway,one at a time,1,55296,56320,25
+gateway,one at a time,1,56320,57344,57
+gateway,one at a time,1,57344,58368,48
+gateway,one at a time,1,58368,59392,54
+gateway,one at a time,1,59392,60416,43
+gateway,one at a time,1,60416,61440,65
+gateway,one at a time,1,61440,62464,36
+gateway,one at a time,1,62464,63488,24
+gateway,one at a time,1,63488,64512,8
+gateway,one at a time,1,64512,65536,12
+gateway,one at a time,1,65536,67584,10
+gateway,one at a time,1,67584,69632,21
+gateway,one at a time,1,69632,71680,11
+gateway,one at a time,1,71680,73728,17
+gateway,one at a time,1,73728,75776,12
+gateway,one at a time,1,75776,77824,6
+gateway,one at a time,1,77824,79872,10
+gateway,one at a time,1,79872,81920,8
+gateway,one at a time,1,81920,83968,8
+gateway,one at a time,1,83968,86016,4
+gateway,one at a time,1,86016,88064,5
+gateway,one at a time,1,88064,90112,5
+gateway,one at a time,1,90112,92160,1
+gateway,one at a time,1,92160,94208,5
+gateway,one at a time,1,94208,96256,2
+gateway,one at a time,1,96256,98304,1
+gateway,one at a time,1,98304,100352,4
+gateway,one at a time,1,100352,102400,1
+gateway,one at a time,1,104448,106496,3
+gateway,one at a time,1,108544,110592,1
+gateway,one at a time,1,110592,112640,1
+gateway,one at a time,1,116736,118784,1
+gateway,one at a time,1,129024,131072,1
+gateway,one at a time,1,131072,135168,1
+gateway,one at a time,1,155648,159744,2
+gateway,paced 50k/s,4,11520,11776,1
+gateway,paced 50k/s,4,11776,12032,4
+gateway,paced 50k/s,4,12032,12288,2
+gateway,paced 50k/s,4,12288,12544,1
+gateway,paced 50k/s,4,12544,12800,10
+gateway,paced 50k/s,4,12800,13056,8
+gateway,paced 50k/s,4,13056,13312,25
+gateway,paced 50k/s,4,13312,13568,35
+gateway,paced 50k/s,4,13568,13824,40
+gateway,paced 50k/s,4,13824,14080,56
+gateway,paced 50k/s,4,14080,14336,102
+gateway,paced 50k/s,4,14336,14592,133
+gateway,paced 50k/s,4,14592,14848,179
+gateway,paced 50k/s,4,14848,15104,194
+gateway,paced 50k/s,4,15104,15360,285
+gateway,paced 50k/s,4,15360,15616,323
+gateway,paced 50k/s,4,15616,15872,374
+gateway,paced 50k/s,4,15872,16128,508
+gateway,paced 50k/s,4,16128,16384,502
+gateway,paced 50k/s,4,16384,16896,1064
+gateway,paced 50k/s,4,16896,17408,1236
+gateway,paced 50k/s,4,17408,17920,1450
+gateway,paced 50k/s,4,17920,18432,1624
+gateway,paced 50k/s,4,18432,18944,1898
+gateway,paced 50k/s,4,18944,19456,2119
+gateway,paced 50k/s,4,19456,19968,2674
+gateway,paced 50k/s,4,19968,20480,2692
+gateway,paced 50k/s,4,20480,20992,2985
+gateway,paced 50k/s,4,20992,21504,3369
+gateway,paced 50k/s,4,21504,22016,3339
+gateway,paced 50k/s,4,22016,22528,3539
+gateway,paced 50k/s,4,22528,23040,3537
+gateway,paced 50k/s,4,23040,23552,3449
+gateway,paced 50k/s,4,23552,24064,2629
+gateway,paced 50k/s,4,24064,24576,2013
+gateway,paced 50k/s,4,24576,25088,1924
+gateway,paced 50k/s,4,25088,25600,2057
+gateway,paced 50k/s,4,25600,26112,2598
+gateway,paced 50k/s,4,26112,26624,3169
+gateway,paced 50k/s,4,26624,27136,3999
+gateway,paced 50k/s,4,27136,27648,3737
+gateway,paced 50k/s,4,27648,28160,3354
+gateway,paced 50k/s,4,28160,28672,3127
+gateway,paced 50k/s,4,28672,29184,2512
+gateway,paced 50k/s,4,29184,29696,2343
+gateway,paced 50k/s,4,29696,30208,2072
+gateway,paced 50k/s,4,30208,30720,2183
+gateway,paced 50k/s,4,30720,31232,2053
+gateway,paced 50k/s,4,31232,31744,2001
+gateway,paced 50k/s,4,31744,32256,2235
+gateway,paced 50k/s,4,32256,32768,1824
+gateway,paced 50k/s,4,32768,33792,2698
+gateway,paced 50k/s,4,33792,34816,2355
+gateway,paced 50k/s,4,34816,35840,2520
+gateway,paced 50k/s,4,35840,36864,3783
+gateway,paced 50k/s,4,36864,37888,6469
+gateway,paced 50k/s,4,37888,38912,8966
+gateway,paced 50k/s,4,38912,39936,12481
+gateway,paced 50k/s,4,39936,40960,14438
+gateway,paced 50k/s,4,40960,41984,13981
+gateway,paced 50k/s,4,41984,43008,12577
+gateway,paced 50k/s,4,43008,44032,6462
+gateway,paced 50k/s,4,44032,45056,6276
+gateway,paced 50k/s,4,45056,46080,6158
+gateway,paced 50k/s,4,46080,47104,4349
+gateway,paced 50k/s,4,47104,48128,2696
+gateway,paced 50k/s,4,48128,49152,1477
+gateway,paced 50k/s,4,49152,50176,793
+gateway,paced 50k/s,4,50176,51200,337
+gateway,paced 50k/s,4,51200,52224,229
+gateway,paced 50k/s,4,52224,53248,216
+gateway,paced 50k/s,4,53248,54272,178
+gateway,paced 50k/s,4,54272,55296,165
+gateway,paced 50k/s,4,55296,56320,139
+gateway,paced 50k/s,4,56320,57344,135
+gateway,paced 50k/s,4,57344,58368,105
+gateway,paced 50k/s,4,58368,59392,122
+gateway,paced 50k/s,4,59392,60416,130
+gateway,paced 50k/s,4,60416,61440,115
+gateway,paced 50k/s,4,61440,62464,150
+gateway,paced 50k/s,4,62464,63488,105
+gateway,paced 50k/s,4,63488,64512,64
+gateway,paced 50k/s,4,64512,65536,131
+gateway,paced 50k/s,4,65536,67584,332
+gateway,paced 50k/s,4,67584,69632,268
+gateway,paced 50k/s,4,69632,71680,208
+gateway,paced 50k/s,4,71680,73728,257
+gateway,paced 50k/s,4,73728,75776,243
+gateway,paced 50k/s,4,75776,77824,215
+gateway,paced 50k/s,4,77824,79872,192
+gateway,paced 50k/s,4,79872,81920,222
+gateway,paced 50k/s,4,81920,83968,195
+gateway,paced 50k/s,4,83968,86016,226
+gateway,paced 50k/s,4,86016,88064,175
+gateway,paced 50k/s,4,88064,90112,172
+gateway,paced 50k/s,4,90112,92160,180
+gateway,paced 50k/s,4,92160,94208,201
+gateway,paced 50k/s,4,94208,96256,182
+gateway,paced 50k/s,4,96256,98304,163
+gateway,paced 50k/s,4,98304,100352,150
+gateway,paced 50k/s,4,100352,102400,152
+gateway,paced 50k/s,4,102400,104448,100
+gateway,paced 50k/s,4,104448,106496,127
+gateway,paced 50k/s,4,106496,108544,102
+gateway,paced 50k/s,4,108544,110592,97
+gateway,paced 50k/s,4,110592,112640,73
+gateway,paced 50k/s,4,112640,114688,87
+gateway,paced 50k/s,4,114688,116736,93
+gateway,paced 50k/s,4,116736,118784,67
+gateway,paced 50k/s,4,118784,120832,94
+gateway,paced 50k/s,4,120832,122880,65
+gateway,paced 50k/s,4,122880,124928,44
+gateway,paced 50k/s,4,124928,126976,60
+gateway,paced 50k/s,4,126976,129024,57
+gateway,paced 50k/s,4,129024,131072,41
+gateway,paced 50k/s,4,131072,135168,77
+gateway,paced 50k/s,4,135168,139264,77
+gateway,paced 50k/s,4,139264,143360,87
+gateway,paced 50k/s,4,143360,147456,76
+gateway,paced 50k/s,4,147456,151552,52
+gateway,paced 50k/s,4,151552,155648,41
+gateway,paced 50k/s,4,155648,159744,42
+gateway,paced 50k/s,4,159744,163840,42
+gateway,paced 50k/s,4,163840,167936,30
+gateway,paced 50k/s,4,167936,172032,29
+gateway,paced 50k/s,4,172032,176128,26
+gateway,paced 50k/s,4,176128,180224,17
+gateway,paced 50k/s,4,180224,184320,12
+gateway,paced 50k/s,4,184320,188416,23
+gateway,paced 50k/s,4,188416,192512,15
+gateway,paced 50k/s,4,192512,196608,24
+gateway,paced 50k/s,4,196608,200704,18
+gateway,paced 50k/s,4,200704,204800,5
+gateway,paced 50k/s,4,204800,208896,12
+gateway,paced 50k/s,4,208896,212992,7
+gateway,paced 50k/s,4,212992,217088,11
+gateway,paced 50k/s,4,217088,221184,7
+gateway,paced 50k/s,4,221184,225280,3
+gateway,paced 50k/s,4,225280,229376,4
+gateway,paced 50k/s,4,229376,233472,3
+gateway,paced 50k/s,4,233472,237568,4
+gateway,paced 50k/s,4,237568,241664,4
+gateway,paced 50k/s,4,241664,245760,4
+gateway,paced 50k/s,4,245760,249856,3
+gateway,paced 50k/s,4,249856,253952,5
+gateway,paced 50k/s,4,253952,258048,2
+gateway,paced 50k/s,4,258048,262144,1
+gateway,paced 50k/s,4,262144,270336,4
+gateway,paced 50k/s,4,270336,278528,2
+gateway,paced 50k/s,4,278528,286720,1
+gateway,paced 50k/s,4,286720,294912,1
+gateway,paced 50k/s,4,327680,335872,1
+gateway,paced 50k/s,4,352256,360448,1
+gateway,paced 100k/s,4,11520,11776,2
+gateway,paced 100k/s,4,11776,12032,1
+gateway,paced 100k/s,4,12032,12288,4
+gateway,paced 100k/s,4,12288,12544,11
+gateway,paced 100k/s,4,12544,12800,9
+gateway,paced 100k/s,4,12800,13056,16
+gateway,paced 100k/s,4,13056,13312,23
+gateway,paced 100k/s,4,13312,13568,29
+gateway,paced 100k/s,4,13568,13824,31
+gateway,paced 100k/s,4,13824,14080,34
+gateway,paced 100k/s,4,14080,14336,39
+gateway,paced 100k/s,4,14336,14592,44
+gateway,paced 100k/s,4,14592,14848,42
+gateway,paced 100k/s,4,14848,15104,35
+gateway,paced 100k/s,4,15104,15360,51
+gateway,paced 100k/s,4,15360,15616,66
+gateway,paced 100k/s,4,15616,15872,88
+gateway,paced 100k/s,4,15872,16128,141
+gateway,paced 100k/s,4,16128,16384,141
+gateway,paced 100k/s,4,16384,16896,365
+gateway,paced 100k/s,4,16896,17408,659
+gateway,paced 100k/s,4,17408,17920,1029
+gateway,paced 100k/s,4,17920,18432,1273
+gateway,paced 100k/s,4,18432,18944,1552
+gateway,paced 100k/s,4,18944,19456,1840
+gateway,paced 100k/s,4,19456,19968,2442
+gateway,paced 100k/s,4,19968,20480,2487
+gateway,paced 100k/s,4,20480,20992,2825
+gateway,paced 100k/s,4,20992,21504,3095
+gateway,paced 100k/s,4,21504,22016,2967
+gateway,paced 100k/s,4,22016,22528,3011
+gateway,paced 100k/s,4,22528,23040,2873
+gateway,paced 100k/s,4,23040,23552,2722
+gateway,paced 100k/s,4,23552,24064,2140
+gateway,paced 100k/s,4,24064,24576,1840
+gateway,paced 100k/s,4,24576,25088,1968
+gateway,paced 100k/s,4,25088,25600,2180
+gateway,paced 100k/s,4,25600,26112,2623
+gateway,paced 100k/s,4,26112,26624,3369
+gateway,paced 100k/s,4,26624,27136,4471
+gateway,paced 100k/s,4,27136,27648,4701
+gateway,paced 100k/s,4,27648,28160,5316
+gateway,paced 100k/s,4,28160,28672,6222
+gateway,paced 100k/s,4,28672,29184,6012
+gateway,paced 100k/s,4,29184,29696,6317
+gateway,paced 100k/s,4,29696,30208,7009
+gateway,paced 100k/s,4,30208,30720,8120
+gateway,paced 100k/s,4,30720,31232,7833
+gateway,paced 100k/s,4,31232,31744,8133
+gateway,paced 100k/s,4,31744,32256,8405
+gateway,paced 100k/s,4,32256,32768,6257
+gateway,paced 100k/s,4,32768,33792,7733
+gateway,paced 100k/s,4,33792,34816,7404
+gateway,paced 100k/s,4,34816,35840,11873
+gateway,paced 100k/s,4,35840,36864,11439
+gateway,paced 100k/s,4,36864,37888,8779
+gateway,paced 100k/s,4,37888,38912,5637
+gateway,paced 100k/s,4,38912,39936,4095
+gateway,paced 100k/s,4,39936,40960,3006
+gateway,paced 100k/s,4,40960,41984,2110
+gateway,paced 100k/s,4,41984,43008,1401
+gateway,paced 100k/s,4,43008,44032,986
+gateway,paced 100k/s,4,44032,45056,1064
+gateway,paced 100k/s,4,45056,46080,884
+gateway,paced 100k/s,4,46080,47104,608
+gateway,paced 100k/s,4,47104,48128,389
+gateway,paced 100k/s,4,48128,49152,221
+gateway,paced 100k/s,4,49152,50176,187
+gateway,paced 100k/s,4,50176,51200,158
+gateway,paced 100k/s,4,51200,52224,135
+gateway,paced 100k/s,4,52224,53248,120
+gateway,paced 100k/s,4,53248,54272,80
+gateway,paced 100k/s,4,54272,55296,89
+gateway,paced 100k/s,4,55296,56320,65
+gateway,paced 100k/s,4,56320,57344,47
+gateway,paced 100k/s,4,57344,58368,45
+gateway,paced 100k/s,4,58368,59392,59
+gateway,paced 100k/s,4,59392,60416,39
+gateway,paced 100k/s,4,60416,61440,41
+gateway,paced 100k/s,4,61440,62464,43
+gateway,paced 100k/s,4,62464,63488,37
+gateway,paced 100k/s,4,63488,64512,32
+gateway,paced 100k/s,4,64512,65536,41
+gateway,paced 100k/s,4,65536,67584,64
+gateway,paced 100k/s,4,67584,69632,62
+gateway,paced 100k/s,4,69632,71680,58
+gateway,paced 100k/s,4,71680,73728,46
+gateway,paced 100k/s,4,73728,75776,69
+gateway,paced 100k/s,4,75776,77824,69
+gateway,paced 100k/s,4,77824,79872,65
+gateway,paced 100k/s,4,79872,81920,58
+gateway,paced 100k/s,4,81920,83968,41
+gateway,paced 100k/s,4,83968,86016,65
+gateway,paced 100k/s,4,86016,88064,62
+gateway,paced 100k/s,4,88064,90112,52
+gateway,paced 100k/s,4,90112,92160,77
+gateway,paced 100k/s,4,92160,94208,48
+gateway,paced 100k/s,4,94208,96256,57
+gateway,paced 100k/s,4,96256,98304,53
+gateway,paced 100k/s,4,98304,100352,60
+gateway,paced 100k/s,4,100352,102400,49
+gateway,paced 100k/s,4,102400,104448,47
+gateway,paced 100k/s,4,104448,106496,65
+gateway,paced 100k/s,4,106496,108544,54
+gateway,paced 100k/s,4,108544,110592,61
+gateway,paced 100k/s,4,110592,112640,46
+gateway,paced 100k/s,4,112640,114688,48
+gateway,paced 100k/s,4,114688,116736,73
+gateway,paced 100k/s,4,116736,118784,62
+gateway,paced 100k/s,4,118784,120832,69
+gateway,paced 100k/s,4,120832,122880,62
+gateway,paced 100k/s,4,122880,124928,76
+gateway,paced 100k/s,4,124928,126976,95
+gateway,paced 100k/s,4,126976,129024,67
+gateway,paced 100k/s,4,129024,131072,94
+gateway,paced 100k/s,4,131072,135168,150
+gateway,paced 100k/s,4,135168,139264,202
+gateway,paced 100k/s,4,139264,143360,131
+gateway,paced 100k/s,4,143360,147456,218
+gateway,paced 100k/s,4,147456,151552,193
+gateway,paced 100k/s,4,151552,155648,137
+gateway,paced 100k/s,4,155648,159744,155
+gateway,paced 100k/s,4,159744,163840,124
+gateway,paced 100k/s,4,163840,167936,175
+gateway,paced 100k/s,4,167936,172032,200
+gateway,paced 100k/s,4,172032,176128,126
+gateway,paced 100k/s,4,176128,180224,167
+gateway,paced 100k/s,4,180224,184320,105
+gateway,paced 100k/s,4,184320,188416,141
+gateway,paced 100k/s,4,188416,192512,115
+gateway,paced 100k/s,4,192512,196608,103
+gateway,paced 100k/s,4,196608,200704,101
+gateway,paced 100k/s,4,200704,204800,65
+gateway,paced 100k/s,4,204800,208896,94
+gateway,paced 100k/s,4,208896,212992,99
+gateway,paced 100k/s,4,212992,217088,64
+gateway,paced 100k/s,4,217088,221184,59
+gateway,paced 100k/s,4,221184,225280,50
+gateway,paced 100k/s,4,225280,229376,48
+gateway,paced 100k/s,4,229376,233472,28
+gateway,paced 100k/s,4,233472,237568,39
+gateway,paced 100k/s,4,237568,241664,24
+gateway,paced 100k/s,4,241664,245760,25
+gateway,paced 100k/s,4,245760,249856,22
+gateway,paced 100k/s,4,249856,253952,24
+gateway,paced 100k/s,4,253952,258048,15
+gateway,paced 100k/s,4,258048,262144,14
+gateway,paced 100k/s,4,262144,270336,31
+gateway,paced 100k/s,4,270336,278528,12
+gateway,paced 100k/s,4,278528,286720,15
+gateway,paced 100k/s,4,286720,294912,8
+gateway,paced 100k/s,4,294912,303104,4
+gateway,paced 100k/s,4,303104,311296,7
+gateway,paced 100k/s,4,311296,319488,5
+gateway,paced 100k/s,4,319488,327680,4
+gateway,paced 100k/s,4,327680,335872,2
+gateway,paced 100k/s,4,335872,344064,1
+gateway,paced 100k/s,4,344064,352256,2
+gateway,paced 100k/s,4,352256,360448,3
+gateway,paced 100k/s,4,360448,368640,1
+gateway,paced 100k/s,4,368640,376832,3
+gateway,paced 100k/s,4,385024,393216,2
+gateway,paced 100k/s,4,393216,401408,2
+gateway,paced 100k/s,4,401408,409600,1
+gateway,paced 100k/s,4,409600,417792,1
+gateway,paced 100k/s,4,417792,425984,2
+gateway,paced 100k/s,4,425984,434176,1
+gateway,paced 100k/s,4,434176,442368,1
+gateway,paced 100k/s,4,442368,450560,2
+gateway,paced 100k/s,4,458752,466944,2
+gateway,paced 100k/s,4,466944,475136,1
+gateway,paced 100k/s,4,475136,483328,3
+gateway,paced 100k/s,4,483328,491520,1
+gateway,paced 100k/s,4,491520,499712,1
+gateway,paced 100k/s,4,499712,507904,2
+gateway,paced 100k/s,4,507904,516096,1
+gateway,paced 100k/s,4,516096,524288,2
+gateway,paced 100k/s,4,524288,540672,1
+gateway,paced 100k/s,4,540672,557056,4
+gateway,paced 100k/s,4,557056,573440,3
+gateway,paced 100k/s,4,573440,589824,2
+gateway,paced 100k/s,4,589824,606208,3
+gateway,paced 100k/s,4,606208,622592,3
+gateway,paced 100k/s,4,622592,638976,3
+gateway,paced 100k/s,4,638976,655360,3
+gateway,paced 100k/s,4,655360,671744,3
+gateway,paced 100k/s,4,671744,688128,4
+gateway,paced 100k/s,4,688128,704512,1
+gateway,paced 100k/s,4,704512,720896,4
+gateway,paced 100k/s,4,720896,737280,3
+gateway,paced 100k/s,4,737280,753664,4
+gateway,paced 100k/s,4,753664,770048,2
+gateway,paced 100k/s,4,770048,786432,4
+gateway,paced 100k/s,4,786432,802816,4
+gateway,paced 100k/s,4,802816,819200,2
+gateway,paced 100k/s,4,819200,835584,3
+gateway,paced 100k/s,4,835584,851968,3
+gateway,paced 100k/s,4,851968,868352,4
+gateway,paced 100k/s,4,868352,884736,3
+gateway,paced 100k/s,4,884736,901120,4
+gateway,paced 100k/s,4,901120,917504,2
+gateway,paced 100k/s,4,917504,933888,3
+gateway,paced 100k/s,4,933888,950272,2
+gateway,paced 100k/s,4,950272,966656,3
+gateway,paced 100k/s,4,966656,983040,3
+gateway,paced 100k/s,4,983040,999424,4
+gateway,paced 100k/s,4,999424,1015808,2
+gateway,paced 100k/s,4,1015808,1032192,4
+gateway,paced 100k/s,4,1032192,1048576,4
+gateway,paced 100k/s,4,1048576,1081344,6
+gateway,paced 100k/s,4,1081344,1114112,6
+gateway,paced 100k/s,4,1114112,1146880,5
+gateway,paced 100k/s,4,1146880,1179648,7
+gateway,paced 100k/s,4,1179648,1212416,6
+gateway,paced 100k/s,4,1212416,1245184,8
+gateway,paced 100k/s,4,1245184,1277952,5
+gateway,paced 100k/s,4,1277952,1310720,7
+gateway,paced 100k/s,4,1310720,1343488,5
+gateway,paced 100k/s,4,1343488,1376256,6
+gateway,paced 100k/s,4,1376256,1409024,6
+gateway,paced 100k/s,4,1409024,1441792,6
+gateway,paced 100k/s,4,1441792,1474560,7
+gateway,paced 100k/s,4,1474560,1507328,6
+gateway,paced 100k/s,4,1507328,1540096,7
+gateway,paced 100k/s,4,1540096,1572864,7
+gateway,paced 100k/s,4,1572864,1605632,4
+gateway,paced 100k/s,4,1605632,1638400,6
+gateway,paced 100k/s,4,1638400,1671168,8
+gateway,paced 100k/s,4,1671168,1703936,5
+gateway,paced 100k/s,4,1703936,1736704,4
+gateway,paced 100k/s,4,1736704,1769472,8
+gateway,paced 100k/s,4,1769472,1802240,6
+gateway,paced 100k/s,4,1802240,1835008,8
+gateway,paced 100k/s,4,1835008,1867776,7
+gateway,paced 100k/s,4,1867776,1900544,5
+gateway,paced 100k/s,4,1900544,1933312,8
+gateway,paced 100k/s,4,1933312,1966080,5
+gateway,paced 100k/s,4,1966080,1998848,8
+gateway,paced 100k/s,4,1998848,2031616,6
+gateway,paced 100k/s,4,2031616,2064384,8
+gateway,paced 100k/s,4,2064384,2097152,6
+gateway,paced 100k/s,4,2097152,2162688,14
+gateway,paced 100k/s,4,2162688,2228224,14
+gateway,paced 100k/s,4,2228224,2293760,15
+gateway,paced 100k/s,4,2293760,2359296,13
+gateway,paced 100k/s,4,2359296,2424832,15
+gateway,paced 100k/s,4,2424832,2490368,15
+gateway,paced 100k/s,4,2490368,2555904,14
+gateway,paced 100k/s,4,2555904,2621440,14
+gateway,paced 100k/s,4,2621440,2686976,12
+gateway,paced 100k/s,4,2686976,2752512,10
+gateway,paced 100k/s,4,2752512,2818048,12
+gateway,paced 100k/s,4,2818048,2883584,11
+gateway,paced 100k/s,4,2883584,2949120,17
+gateway,paced 100k/s,4,2949120,3014656,13
+gateway,paced 100k/s,4,3014656,3080192,12
+gateway,paced 100k/s,4,3080192,3145728,13
+gateway,paced 100k/s,4,3145728,3211264,16
+gateway,paced 100k/s,4,3211264,3276800,11
+gateway,paced 100k/s,4,3276800,3342336,14
+gateway,paced 100k/s,4,3342336,3407872,13
+gateway,paced 100k/s,4,3407872,3473408,13
+gateway,paced 100k/s,4,3473408,3538944,11
+gateway,paced 100k/s,4,3538944,3604480,9
+gateway,paced 100k/s,4,3604480,3670016,14
+gateway,paced 100k/s,4,3670016,3735552,11
+gateway,paced 100k/s,4,3735552,3801088,11
+gateway,paced 100k/s,4,3801088,3866624,13
+gateway,paced 100k/s,4,3866624,3932160,11
+gateway,paced 100k/s,4,3932160,3997696,15
+gateway,paced 100k/s,4,3997696,4063232,11
+gateway,paced 100k/s,4,4063232,4128768,10
+gateway,paced 100k/s,4,4128768,4194304,9
+gateway,paced 100k/s,4,4194304,4325376,19
+gateway,paced 100k/s,4,4325376,4456448,24
+gateway,paced 100k/s,4,4456448,4587520,17
+gateway,paced 100k/s,4,4587520,4718592,18
+gateway,paced 100k/s,4,4718592,4849664,27
+gateway,paced 100k/s,4,4849664,4980736,24
+gateway,paced 100k/s,4,4980736,5111808,26
+gateway,paced 100k/s,4,5111808,5242880,22
+gateway,paced 100k/s,4,5242880,5373952,23
+gateway,paced 100k/s,4,5373952,5505024,26
+gateway,paced 100k/s,4,5505024,5636096,23
+gateway,paced 100k/s,4,5636096,5767168,23
+gateway,paced 100k/s,4,5767168,5898240,24
+gateway,paced 100k/s,4,5898240,6029312,25
+gateway,paced 100k/s,4,6029312,6160384,24
+gateway,paced 100k/s,4,6160384,6291456,23
+gateway,paced 100k/s,4,6291456,6422528,23
+gateway,paced 100k/s,4,6422528,6553600,27
+gateway,paced 100k/s,4,6553600,6684672,29
+gateway,paced 100k/s,4,6684672,6815744,27
+gateway,paced 100k/s,4,6815744,6946816,29
+gateway,paced 100k/s,4,6946816,7077888,26
+gateway,paced 100k/s,4,7077888,7208960,24
+gateway,paced 100k/s,4,7208960,7340032,16
+gateway,paced 100k/s,4,7340032,7471104,23
+gateway,paced 100k/s,4,7471104,7602176,35
+gateway,paced 100k/s,4,7602176,7733248,29
+gateway,paced 100k/s,4,7733248,7864320,27
+gateway,paced 100k/s,4,7864320,7995392,27
+gateway,paced 100k/s,4,7995392,8126464,27
+gateway,paced 100k/s,4,8126464,8257536,24
+gateway,paced 100k/s,4,8257536,8388608,26
+gateway,paced 100k/s,4,8388608,8650752,57
+gateway,paced 100k/s,4,8650752,8912896,53
+gateway,paced 100k/s,4,8912896,9175040,52
+gateway,paced 100k/s,4,9175040,9437184,60
+gateway,paced 100k/s,4,9437184,9699328,55
+gateway,paced 100k/s,4,9699328,9961472,63
+gateway,paced 100k/s,4,9961472,10223616,62
+gateway,paced 100k/s,4,10223616,10485760,44
+gateway,paced 100k/s,4,10485760,10747904,49
+gateway,paced 100k/s,4,10747904,11010048,78
+gateway,paced 100k/s,4,11010048,11272192,78
+gateway,paced 100k/s,4,11272192,11534336,76
+gateway,paced 100k/s,4,11534336,11796480,75
+gateway,paced 100k/s,4,11796480,12058624,79
+gateway,paced 100k/s,4,12058624,12320768,77
+gateway,paced 100k/s,4,12320768,12582912,79
+gateway,paced 100k/s,4,12582912,12845056,86
+gateway,paced 100k/s,4,12845056,13107200,81
+gateway,paced 100k/s,4,13107200,13369344,76
+gateway,paced 100k/s,4,13369344,13631488,69
+gateway,paced 100k/s,4,13631488,13893632,44
+gateway,paced 100k/s,4,13893632,14155776,59
+gateway,paced 100k/s,4,14155776,14417920,36
+gateway,paced 200k/s,4,11776,12032,1
+gateway,paced 200k/s,4,14336,14592,1
+gateway,paced 200k/s,4,15104,15360,1
+gateway,paced 200k/s,4,15616,15872,1
+gateway,paced 200k/s,4,15872,16128,3
+gateway,paced 200k/s,4,16128,16384,3
+gateway,paced 200k/s,4,16384,16896,1
+gateway,paced 200k/s,4,16896,17408,11
+gateway,paced 200k/s,4,17408,17920,21
+gateway,paced 200k/s,4,17920,18432,24
+gateway,paced 200k/s,4,18432,18944,44
+gateway,paced 200k/s,4,18944,19456,57
+gateway,paced 200k/s,4,19456,19968,88
+gateway,paced 200k/s,4,19968,20480,103
+gateway,paced 200k/s,4,20480,20992,148
+gateway,paced 200k/s,4,20992,21504,198
+gateway,paced 200k/s,4,21504,22016,239
+gateway,paced 200k/s,4,22016,22528,276
+gateway,paced 200k/s,4,22528,23040,422
+gateway,paced 200k/s,4,23040,23552,664
+gateway,paced 200k/s,4,23552,24064,766
+gateway,paced 200k/s,4,24064,24576,944
+gateway,paced 200k/s,4,24576,25088,1232
+gateway,paced 200k/s,4,25088,25600,1316
+gateway,paced 200k/s,4,25600,26112,1543
+gateway,paced 200k/s,4,26112,26624,1962
+gateway,paced 200k/s,4,26624,27136,2427
+gateway,paced 200k/s,4,27136,27648,2452
+gateway,paced 200k/s,4,27648,28160,2556
+gateway,paced 200k/s,4,28160,28672,2970
+gateway,paced 200k/s,4,28672,29184,2648
+gateway,paced 200k/s,4,29184,29696,2687
+gateway,paced 200k/s,4,29696,30208,2722
+gateway,paced 200k/s,4,30208,30720,3085
+gateway,paced 200k/s,4,30720,31232,2761
+gateway,paced 200k/s,4,31232,31744,2953
+gateway,paced 200k/s,4,31744,32256,3233
+gateway,paced 200k/s,4,32256,32768,3010
+gateway,paced 200k/s,4,32768,33792,6853
+gateway,paced 200k/s,4,33792,34816,7513
+gateway,paced 200k/s,4,34816,35840,9124
+gateway,paced 200k/s,4,35840,36864,9429
+gateway,paced 200k/s,4,36864,37888,10018
+gateway,paced 200k/s,4,37888,38912,10321
+gateway,paced 200k/s,4,38912,39936,10742
+gateway,paced 200k/s,4,39936,40960,10134
+gateway,paced 200k/s,4,40960,41984,9132
+gateway,paced 200k/s,4,41984,43008,9080
+gateway,paced 200k/s,4,43008,44032,8275
+gateway,paced 200k/s,4,44032,45056,7174
+gateway,paced 200k/s,4,45056,46080,7114
+gateway,paced 200k/s,4,46080,47104,7250
+gateway,paced 200k/s,4,47104,48128,6025
+gateway,paced 200k/s,4,48128,49152,4354
+gateway,paced 200k/s,4,49152,50176,3147
+gateway,paced 200k/s,4,50176,51200,2240
+gateway,paced 200k/s,4,51200,52224,1815
+gateway,paced 200k/s,4,52224,53248,1380
+gateway,paced 200k/s,4,53248,54272,1277
+gateway,paced 200k/s,4,54272,55296,984
+gateway,paced 200k/s,4,55296,56320,852
+gateway,paced 200k/s,4,56320,57344,774
+gateway,paced 200k/s,4,57344,58368,560
+gateway,paced 200k/s,4,58368,59392,448
+gateway,paced 200k/s,4,59392,60416,373
+gateway,paced 200k/s,4,60416,61440,296
+gateway,paced 200k/s,4,61440,62464,206
+gateway,paced 200k/s,4,62464,63488,162
+gateway,paced 200k/s,4,63488,64512,153
+gateway,paced 200k/s,4,64512,65536,113
+gateway,paced 200k/s,4,65536,67584,147
+gateway,paced 200k/s,4,67584,69632,113
+gateway,paced 200k/s,4,69632,71680,78
+gateway,paced 200k/s,4,71680,73728,60
+gateway,paced 200k/s,4,73728,75776,57
+gateway,paced 200k/s,4,75776,77824,52
+gateway,paced 200k/s,4,77824,79872,44
+gateway,paced 200k/s,4,79872,81920,48
+gateway,paced 200k/s,4,81920,83968,42
+gateway,paced 200k/s,4,83968,86016,44
+gateway,paced 200k/s,4,86016,88064,33
+gateway,paced 200k/s,4,88064,90112,35
+gateway,paced 200k/s,4,90112,92160,25
+gateway,paced 200k/s,4,92160,94208,21
+gateway,paced 200k/s,4,94208,96256,22
+gateway,paced 200k/s,4,96256,98304,27
+gateway,paced 200k/s,4,98304,100352,15
+gateway,paced 200k/s,4,100352,102400,16
+gateway,paced 200k/s,4,102400,104448,19
+gateway,paced 200k/s,4,104448,106496,20
+gateway,paced 200k/s,4,106496,108544,15
+gateway,paced 200k/s,4,108544,110592,11
+gateway,paced 200k/s,4,110592,112640,13
+gateway,paced 200k/s,4,112640,114688,11
+gateway,paced 200k/s,4,114688,116736,11
+gateway,paced 200k/s,4,116736,118784,7
+gateway,paced 200k/s,4,118784,120832,7
+gateway,paced 200k/s,4,120832,122880,11
+gateway,paced 200k/s,4,122880,124928,18
+gateway,paced 200k/s,4,124928,126976,14
+gateway,paced 200k/s,4,126976,129024,9
+gateway,paced 200k/s,4,129024,131072,10
+gateway,paced 200k/s,4,131072,135168,10
+gateway,paced 200k/s,4,135168,139264,9
+gateway,paced 200k/s,4,139264,143360,10
+gateway,paced 200k/s,4,143360,147456,19
+gateway,paced 200k/s,4,147456,151552,8
+gateway,paced 200k/s,4,151552,155648,6
+gateway,paced 200k/s,4,155648,159744,2
+gateway,paced 200k/s,4,159744,163840,9
+gateway,paced 200k/s,4,163840,167936,6
+gateway,paced 200k/s,4,167936,172032,5
+gateway,paced 200k/s,4,172032,176128,2
+gateway,paced 200k/s,4,176128,180224,1
+gateway,paced 200k/s,4,180224,184320,7
+gateway,paced 200k/s,4,184320,188416,5
+gateway,paced 200k/s,4,188416,192512,3
+gateway,paced 200k/s,4,192512,196608,3
+gateway,paced 200k/s,4,196608,200704,2
+gateway,paced 200k/s,4,200704,204800,3
+gateway,paced 200k/s,4,204800,208896,7
+gateway,paced 200k/s,4,208896,212992,2
+gateway,paced 200k/s,4,212992,217088,3
+gateway,paced 200k/s,4,217088,221184,3
+gateway,paced 200k/s,4,221184,225280,4
+gateway,paced 200k/s,4,225280,229376,4
+gateway,paced 200k/s,4,229376,233472,3
+gateway,paced 200k/s,4,233472,237568,2
+gateway,paced 200k/s,4,237568,241664,1
+gateway,paced 200k/s,4,241664,245760,4
+gateway,paced 200k/s,4,245760,249856,5
+gateway,paced 200k/s,4,249856,253952,5
+gateway,paced 200k/s,4,253952,258048,2
+gateway,paced 200k/s,4,258048,262144,1
+gateway,paced 200k/s,4,262144,270336,8
+gateway,paced 200k/s,4,270336,278528,6
+gateway,paced 200k/s,4,278528,286720,7
+gateway,paced 200k/s,4,286720,294912,9
+gateway,paced 200k/s,4,294912,303104,3
+gateway,paced 200k/s,4,303104,311296,7
+gateway,paced 200k/s,4,311296,319488,5
+gateway,paced 200k/s,4,319488,327680,7
+gateway,paced 200k/s,4,327680,335872,2
+gateway,paced 200k/s,4,335872,344064,4
+gateway,paced 200k/s,4,344064,352256,6
+gateway,paced 200k/s,4,352256,360448,3
+gateway,paced 200k/s,4,360448,368640,1
+gateway,paced 200k/s,4,368640,376832,6
+gateway,paced 200k/s,4,376832,385024,4
+gateway,paced 200k/s,4,385024,393216,5
+gateway,paced 200k/s,4,393216,401408,6
+gateway,paced 200k/s,4,401408,409600,2
+gateway,paced 200k/s,4,409600,417792,4
+gateway,paced 200k/s,4,417792,425984,4
+gateway,paced 200k/s,4,425984,434176,1
+gateway,paced 200k/s,4,434176,442368,6
+gateway,paced 200k/s,4,442368,450560,3
+gateway,paced 200k/s,4,450560,458752,4
+gateway,paced 200k/s,4,458752,466944,7
+gateway,paced 200k/s,4,466944,475136,4
+gateway,paced 200k/s,4,475136,483328,3
+gateway,paced 200k/s,4,483328,491520,6
+gateway,paced 200k/s,4,491520,499712,3
+gateway,paced 200k/s,4,499712,507904,2
+gateway,paced 200k/s,4,507904,516096,5
+gateway,paced 200k/s,4,516096,524288,4
+gateway,paced 200k/s,4,524288,540672,10
+gateway,paced 200k/s,4,540672,557056,6
+gateway,paced 200k/s,4,557056,573440,10
+gateway,paced 200k/s,4,573440,589824,6
+gateway,paced 200k/s,4,589824,606208,5
+gateway,paced 200k/s,4,606208,622592,9
+gateway,paced 200k/s,4,622592,638976,7
+gateway,paced 200k/s,4,638976,655360,7
+gateway,paced 200k/s,4,655360,671744,9
+gateway,paced 200k/s,4,671744,688128,11
+gateway,paced 200k/s,4,688128,704512,9
+gateway,paced 200k/s,4,704512,720896,8
+gateway,paced 200k/s,4,720896,737280,7
+gateway,paced 200k/s,4,737280,753664,9
+gateway,paced 200k/s,4,753664,770048,8
+gateway,paced 200k/s,4,770048,786432,10
+gateway,paced 200k/s,4,786432,802816,8
+gateway,paced 200k/s,4,802816,819200,6
+gateway,paced 200k/s,4,819200,835584,11
+gateway,paced 200k/s,4,835584,851968,10
+gateway,paced 200k/s,4,851968,868352,5
+gateway,paced 200k/s,4,868352,884736,9
+gateway,paced 200k/s,4,884736,901120,4
+gateway,paced 200k/s,4,901120,917504,11
+gateway,paced 200k/s,4,917504,933888,11
+gateway,paced 200k/s,4,933888,950272,11
+gateway,paced 200k/s,4,950272,966656,4
+gateway,paced 200k/s,4,966656,983040,11
+gateway,paced 200k/s,4,983040,999424,5
+gateway,paced 200k/s,4,999424,1015808,6
+gateway,paced 200k/s,4,1015808,1032192,9
+gateway,paced 200k/s,4,1032192,1048576,9
+gateway,paced 200k/s,4,1048576,1081344,12
+gateway,paced 200k/s,4,1081344,1114112,14
+gateway,paced 200k/s,4,1114112,1146880,18
+gateway,paced 200k/s,4,1146880,1179648,15
+gateway,paced 200k/s,4,1179648,1212416,15
+gateway,paced 200k/s,4,1212416,1245184,19
+gateway,paced 200k/s,4,1245184,1277952,14
+gateway,paced 200k/s,4,1277952,1310720,18
+gateway,paced 200k/s,4,1310720,1343488,14
+gateway,paced 200k/s,4,1343488,1376256,17
+gateway,paced 200k/s,4,1376256,1409024,13
+gateway,paced 200k/s,4,1409024,1441792,14
+gateway,paced 200k/s,4,1441792,1474560,11
+gateway,paced 200k/s,4,1474560,1507328,19
+gateway,paced 200k/s,4,1507328,1540096,16
+gateway,paced 200k/s,4,1540096,1572864,15
+gateway,paced 200k/s,4,1572864,1605632,14
+gateway,paced 200k/s,4,1605632,1638400,16
+gateway,paced 200k/s,4,1638400,1671168,17
+gateway,paced 200k/s,4,1671168,1703936,13
+gateway,paced 200k/s,4,1703936,1736704,10
+gateway,paced 200k/s,4,1736704,1769472,11
+gateway,paced 200k/s,4,1769472,1802240,11
+gateway,paced 200k/s,4,1802240,1835008,12
+gateway,paced 200k/s,4,1835008,1867776,18
+gateway,paced 200k/s,4,1867776,1900544,13
+gateway,paced 200k/s,4,1900544,1933312,13
+gateway,paced 200k/s,4,1933312,1966080,17
+gateway,paced 200k/s,4,1966080,1998848,13
+gateway,paced 200k/s,4,1998848,2031616,16
+gateway,paced 200k/s,4,2031616,2064384,14
+gateway,paced 200k/s,4,2064384,2097152,11
+gateway,paced 200k/s,4,2097152,2162688,23
+gateway,paced 200k/s,4,2162688,2228224,35
+gateway,paced 200k/s,4,2228224,2293760,25
+gateway,paced 200k/s,4,2293760,2359296,31
+gateway,paced 200k/s,4,2359296,2424832,30
+gateway,paced 200k/s,4,2424832,2490368,21
+gateway,paced 200k/s,4,2490368,2555904,15
+gateway,paced 200k/s,4,2555904,2621440,36
+gateway,paced 200k/s,4,2621440,2686976,26
+gateway,paced 200k/s,4,2686976,2752512,27
+gateway,paced 200k/s,4,2752512,2818048,29
+gateway,paced 200k/s,4,2818048,2883584,28
+gateway,paced 200k/s,4,2883584,2949120,24
+gateway,paced 200k/s,4,2949120,3014656,26
+gateway,paced 200k/s,4,3014656,3080192,23
+gateway,paced 200k/s,4,3080192,3145728,29
+gateway,paced 200k/s,4,3145728,3211264,26
+gateway,paced 200k/s,4,3211264,3276800,35
+gateway,paced 200k/s,4,3276800,3342336,29
+gateway,paced 200k/s,4,3342336,3407872,25
+gateway,paced 200k/s,4,3407872,3473408,29
+gateway,paced 200k/s,4,3473408,3538944,28
+gateway,paced 200k/s,4,3538944,3604480,28
+gateway,paced 200k/s,4,3604480,3670016,23
+gateway,paced 200k/s,4,3670016,3735552,23
+gateway,paced 200k/s,4,3735552,3801088,28
+gateway,paced 200k/s,4,3801088,3866624,26
+gateway,paced 200k/s,4,3866624,3932160,24
+gateway,paced 200k/s,4,3932160,3997696,22
+gateway,paced 200k/s,4,3997696,4063232,27
+gateway,paced 200k/s,4,4063232,4128768,28
+gateway,paced 200k/s,4,4128768,4194304,24
+gateway,paced 200k/s,4,4194304,4325376,54
+gateway,paced 200k/s,4,4325376,4456448,52
+gateway,paced 200k/s,4,4456448,4587520,46
+gateway,paced 200k/s,4,4587520,4718592,42
+gateway,paced 200k/s,4,4718592,4849664,51
+gateway,paced 200k/s,4,4849664,4980736,56
+gateway,paced 200k/s,4,4980736,5111808,45
+gateway,paced 200k/s,4,5111808,5242880,52
+gateway,paced 200k/s,4,5242880,5373952,51
+gateway,paced 200k/s,4,5373952,5505024,52
+gateway,paced 200k/s,4,5505024,5636096,57
+gateway,paced 200k/s,4,5636096,5767168,55
+gateway,paced 200k/s,4,5767168,5898240,50
+gateway,paced 200k/s,4,5898240,6029312,53
+gateway,paced 200k/s,4,6029312,6160384,62
+gateway,paced 200k/s,4,6160384,6291456,56
+gateway,paced 200k/s,4,6291456,6422528,51
+gateway,paced 200k/s,4,6422528,6553600,55
+gateway,paced 200k/s,4,6553600,6684672,55
+gateway,paced 200k/s,4,6684672,6815744,56
+gateway,paced 200k/s,4,6815744,6946816,47
+gateway,paced 200k/s,4,6946816,7077888,44
+gateway,paced 200k/s,4,7077888,7208960,66
+gateway,paced 200k/s,4,7208960,7340032,55
+gateway,paced 200k/s,4,7340032,7471104,52
+gateway,paced 200k/s,4,7471104,7602176,54
+gateway,paced 200k/s,4,7602176,7733248,66
+gateway,paced 200k/s,4,7733248,7864320,54
+gateway,paced 200k/s,4,7864320,7995392,46
+gateway,paced 200k/s,4,7995392,8126464,45
+gateway,paced 200k/s,4,8126464,8257536,39
+gateway,paced 200k/s,4,8257536,8388608,46
+gateway,paced 200k/s,4,8388608,8650752,84
+gateway,paced 200k/s,4,8650752,8912896,81
+gateway,paced 200k/s,4,8912896,9175040,100
+gateway,paced 200k/s,4,9175040,9437184,88
+gateway,paced 200k/s,4,9437184,9699328,92
+gateway,paced 200k/s,4,9699328,9961472,87
+gateway,paced 200k/s,4,9961472,10223616,82
+gateway,paced 200k/s,4,10223616,10485760,90
+gateway,paced 200k/s,4,10485760,10747904,90
+gateway,paced 200k/s,4,10747904,11010048,82
+gateway,paced 200k/s,4,11010048,11272192,85
+gateway,paced 200k/s,4,11272192,11534336,84
+gateway,paced 200k/s,4,11534336,11796480,89
+gateway,paced 200k/s,4,11796480,12058624,88
+gateway,paced 200k/s,4,12058624,12320768,91
+gateway,paced 200k/s,4,12320768,12582912,89
+gateway,paced 200k/s,4,12582912,12845056,81
+gateway,paced 200k/s,4,12845056,13107200,77
+gateway,paced 200k/s,4,13107200,13369344,71
+gateway,paced 200k/s,4,13369344,13631488,100
+gateway,paced 200k/s,4,13631488,13893632,93
+gateway,paced 200k/s,4,13893632,14155776,77
+gateway,paced 200k/s,4,14155776,14417920,88
+gateway,paced 200k/s,4,14417920,14680064,76
+gateway,paced 200k/s,4,14680064,14942208,76
+gateway,paced 200k/s,4,14942208,15204352,87
+gateway,paced 200k/s,4,15204352,15466496,117
+gateway,paced 200k/s,4,15466496,15728640,88
+gateway,paced 200k/s,4,15728640,15990784,90
+gateway,paced 200k/s,4,15990784,16252928,89
+gateway,paced 200k/s,4,16252928,16515072,86
+gateway,paced 200k/s,4,16515072,16777216,111
+gateway,paced 200k/s,4,16777216,17301504,300
+gateway,paced 200k/s,4,17301504,17825792,312
+gateway,paced 200k/s,4,17825792,18350080,291
+gateway,paced 200k/s,4,18350080,18874368,324
+gateway,paced 200k/s,4,18874368,19398656,287
+gateway,paced 200k/s,4,19398656,19922944,186
+gateway,saturated,4,425984,434176,1
+gateway,saturated,4,458752,466944,256
+gateway,saturated,4,573440,589824,1
+gateway,saturated,4,589824,606208,2
+gateway,saturated,4,606208,622592,5
+gateway,saturated,4,622592,638976,3
+gateway,saturated,4,704512,720896,1
+gateway,saturated,4,770048,786432,79
+gateway,saturated,4,786432,802816,80
+gateway,saturated,4,802816,819200,255
+gateway,saturated,4,851968,868352,258
+gateway,saturated,4,868352,884736,87
+gateway,saturated,4,884736,901120,17
+gateway,saturated,4,901120,917504,268
+gateway,saturated,4,917504,933888,2310
+gateway,saturated,4,933888,950272,6719
+gateway,saturated,4,950272,966656,12265
+gateway,saturated,4,966656,983040,8681
+gateway,saturated,4,983040,999424,3828
+gateway,saturated,4,999424,1015808,5114
+gateway,saturated,4,1015808,1032192,6910
+gateway,saturated,4,1032192,1048576,2558
+gateway,saturated,4,1048576,1081344,1058
+gateway,saturated,4,1081344,1114112,20
+gateway,saturated,4,1114112,1146880,28
+gateway,saturated,4,1146880,1179648,260
+gateway,saturated,4,1179648,1212416,259
+gateway,saturated,4,1212416,1245184,1789
+gateway,saturated,4,1245184,1277952,14050
+gateway,saturated,4,1277952,1310720,15604
+gateway,saturated,4,1310720,1343488,6456
+gateway,saturated,4,1343488,1376256,21997
+gateway,saturated,4,1376256,1409024,21736
+gateway,saturated,4,1409024,1441792,24314
+gateway,saturated,4,1441792,1474560,19682
+gateway,saturated,4,1474560,1507328,9454
+gateway,saturated,4,1507328,1540096,9959
+gateway,saturated,4,1540096,1572864,2045
+gateway,saturated,4,1605632,1638400,258
+gateway,saturated,4,1638400,1671168,259
+gateway,saturated,4,1671168,1703936,2
+gateway,saturated,4,1703936,1736704,260
+gateway,saturated,4,1736704,1769472,17
+gateway,saturated,4,1769472,1802240,9
+gateway,saturated,4,1802240,1835008,6
+gateway,saturated,4,1835008,1867776,5
+gateway,saturated,4,1867776,1900544,6
+gateway,saturated,4,1900544,1933312,2
+gateway,saturated,4,1933312,1966080,256
+gateway,saturated,4,2031616,2064384,255
+gateway,saturated,4,2097152,2162688,256

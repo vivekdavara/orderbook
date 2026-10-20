@@ -28,8 +28,11 @@ from xml.sax.saxutils import escape
 SERIES_LIGHT = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100"]
 SERIES_DARK = ["#3987e5", "#d95926", "#199e70", "#c98500"]
 
-WIDTH, HEIGHT = 820, 440
-LEFT, RIGHT, TOP, BOTTOM = 70, 190, 92, 58
+WIDTH, HEIGHT = 840, 460
+LEFT, RIGHT, TOP, BOTTOM = 70, 200, 92, 84
+
+# Shorter names for the end-of-line labels, where the right margin is narrow.
+SHORT = {"day 2's engine (MapBook)": "MapBook (day 2)"}
 
 
 def read_rows(path):
@@ -133,7 +136,7 @@ class Svg:
         self.text(LEFT, 26, self.title, "title")
         self.text(LEFT, 44, self.subtitle, "subtitle")
         if self.note:
-            self.text(LEFT, HEIGHT - 10, self.note, "note")
+            self.text(LEFT, HEIGHT - 12, self.note, "note")
         self.add("</svg>")
         with open(path, "w") as f:
             f.write("\n".join(self.parts) + "\n")
@@ -222,13 +225,14 @@ def percentile_figure(series, path, title, subtitle, note):
         ends.append((x_last, py(points[-1][1]), name, points[-1][1]))
     label_ys = spread([y for _, y, _, _ in ends])
     for (x, _, name, v), y in zip(ends, label_ys):
-        svg.text(LEFT + plot_w + 8, y + 4, f"{name}, max {duration(v)}", "label")
+        svg.text(LEFT + plot_w + 8, y + 4, f"{SHORT.get(name, name)}, max {duration(v)}", "label")
     legend(svg, [name for name, _, _ in curves])
     svg.write(path)
 
 
 def histogram_figure(series, path, title, subtitle, note):
-    """Each row's share of commands in bins of an eighth of a doubling (4 of the CSV's buckets), on a log axis."""
+    """Each row's share of commands in bins of an eighth of a doubling (4 of the CSV's buckets), on log axes: the
+    share is logarithmic too, so that a tail of a few commands a bin shows beside a mode of a fifth of them."""
     curves = []
     for name, buckets in series:
         total = sum(c for _, _, c in buckets)
@@ -241,45 +245,47 @@ def histogram_figure(series, path, title, subtitle, note):
             width = 1 << e
             first = (lower // (4 * width)) * (4 * width)
             bins[(first, first + 4 * width)] += count
-        curves.append((name, sorted((lo, hi, c / total) for (lo, hi), c in bins.items())))
-    x_lo, x_hi = nice_range(min(b[0][0] for _, b in curves), max(b[-1][1] for _, b in curves))
-    share_max = max(s for _, b in curves for _, _, s in b)
-    step = next(s for s in (0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1.0) if share_max / s <= 6)
-    y_hi = math.ceil(share_max / step) * step
+        curves.append((name, total, sorted((lo, hi, c / total) for (lo, hi), c in bins.items())))
+    x_lo, x_hi = nice_range(min(b[0][0] for _, _, b in curves), max(b[-1][1] for _, _, b in curves))
+    # From one command of the largest row (rounded down to a power of ten) to the largest share.
+    y_lo = 10.0 ** math.floor(math.log10(1 / max(total for _, total, _ in curves)))
+    y_hi = 10.0 ** math.ceil(math.log10(max(s for _, _, b in curves for _, _, s in b)))
     plot_w, plot_h = WIDTH - LEFT - RIGHT, HEIGHT - TOP - BOTTOM
 
     def px(v):
         return LEFT + (math.log10(v) - math.log10(x_lo)) / (math.log10(x_hi) - math.log10(x_lo)) * plot_w
 
     def py(share):
-        return TOP + plot_h - share / y_hi * plot_h
+        share = max(share, y_lo)
+        return TOP + plot_h - (math.log10(share) - math.log10(y_lo)) / (math.log10(y_hi) - math.log10(y_lo)) * plot_h
 
     svg = Svg(title, subtitle, note)
-    k = 0
-    while k * step <= y_hi + 1e-9:
-        y = py(k * step)
+    exponent = round(math.log10(y_lo))
+    while 10.0 ** exponent <= y_hi * (1 + 1e-9):
+        y = py(10.0 ** exponent)
         svg.add(f'<line class="grid" x1="{LEFT}" y1="{y:.1f}" x2="{LEFT + plot_w}" y2="{y:.1f}"/>')
-        svg.text(LEFT - 8, y + 4, f"{k * step * 100:g}%", "tick", "end")
-        k += 1
+        svg.text(LEFT - 8, y + 4, f"{100 * 10.0 ** exponent:g}%", "tick", "end")
+        exponent += 1
     for v in log_ticks(x_lo, x_hi):
         x = px(v)
         svg.add(f'<line class="grid" x1="{x:.1f}" y1="{TOP}" x2="{x:.1f}" y2="{TOP + plot_h}"/>')
         svg.text(x, TOP + plot_h + 18, duration(v), "tick", "middle")
     svg.add(f'<line class="axis" x1="{LEFT}" y1="{TOP + plot_h}" x2="{LEFT + plot_w}" y2="{TOP + plot_h}"/>')
-    svg.text(LEFT + plot_w / 2, TOP + plot_h + 40, "latency (log scale), bins an eighth of a doubling wide",
+    svg.text(LEFT + plot_w / 2, TOP + plot_h + 40,
+             "latency (log scale), bins an eighth of a doubling wide; share of the row's commands (log scale)",
              "label", "middle")
-    for i, (name, bins) in enumerate(curves):
+    for i, (name, _, bins) in enumerate(curves):
         points = [(px(bins[0][0]), py(0))]
         previous_hi = None
         for lo, hi, share in bins:
-            if previous_hi is not None and lo > previous_hi:  # empty bins between: back to zero
+            if previous_hi is not None and lo > previous_hi:  # empty bins between: down to the floor
                 points += [(px(previous_hi), py(0)), (px(lo), py(0))]
             points += [(px(lo), py(share)), (px(hi), py(share))]
             previous_hi = hi
         points.append((px(previous_hi), py(0)))
         d = " ".join(f"{'M' if k == 0 else 'L'}{x:.1f},{y:.1f}" for k, (x, y) in enumerate(points))
         svg.add(f'<path class="line s{i + 1}" d="{d}"/>')
-    legend(svg, [name for name, _ in curves])
+    legend(svg, [name for name, _, _ in curves])
     svg.write(path)
 
 
