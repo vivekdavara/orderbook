@@ -48,9 +48,13 @@ bad input, 2 a usage error), and `Book`'s interface (`apply`, `depth`, `orders`,
 - `orderbook_latency`: each command timed alone, and the engine's thread one at a time, paced (timed from when each
   command was due) and saturated.
 - `orderbook_loadgen`: the gateway over TCP, each command timed from when it was due to its acknowledgement.
-- Day 5: latency histograms. Both tools take `--csv FILE` (log-linear buckets, at most 3.1% wide, in
+- Day 5: latency histograms. Both tools take `--csv FILE` (log-linear buckets, at most 3.1% wide from 32 ns up, in
   `bench/latency_histogram.hpp`), `scripts/plot_latency.py` draws them, and `make histograms` does both; the figures
-  and the runs behind them are in `docs/`.
+  and the runs behind them are in `docs/`. The load generator's `--trace FILE` (every command's due time and latency,
+  read by `scripts/trace_tail.py`) and `--lead-in N` (untimed commands before the timed ones) showed its paced tail
+  to be a cold start.
+- `scripts/release_check.sh`: every check, on the working tree and on a clean `git archive` of HEAD, with the version
+  against `project()` and the release tag.
 
 ### The tool
 
