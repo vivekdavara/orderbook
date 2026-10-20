@@ -9,6 +9,7 @@ add_executable(orderbook_tests
   engine_thread_test.cpp
   gateway_test.cpp
   id_table_test.cpp
+  latency_histogram_test.cpp
   market_data_test.cpp
   minimize_test.cpp
   random_flow_test.cpp
@@ -26,6 +27,8 @@ add_executable(orderbook_tests
 target_link_libraries(orderbook_tests PRIVATE orderbook::testkit orderbook::gateway GTest::gtest_main Threads::Threads)
 orderbook_set_warnings(orderbook_tests)
 target_compile_definitions(orderbook_tests PRIVATE ORDERBOOK_SCENARIO_DIR="${CMAKE_CURRENT_SOURCE_DIR}/scenarios")
+# The measuring tools' histogram (bench/latency_histogram.hpp), header-only.
+target_include_directories(orderbook_tests PRIVATE ${PROJECT_SOURCE_DIR}/bench)
 
 # Each TEST becomes its own CTest test, so a failure is named in ctest's summary.
 gtest_discover_tests(orderbook_tests DISCOVERY_TIMEOUT 30)

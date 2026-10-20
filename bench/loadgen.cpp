@@ -13,10 +13,12 @@
 // book of about 1,000 resting orders (untimed); when they close, the gateway cancels what they left.
 //
 // Usage: orderbook_loadgen [--port N] [--host IPV4] [--connections C] [--commands N] [--rate R]... [--spin on|off]
+//                          [--csv FILE]
 // Without --port it starts a gateway in this process, on a free port, on its own thread (--spin on: one that never
-// blocks in poll). Without --rate it runs one
-// at a time, then paced at 50,000, 100,000 and 200,000 commands/s, then saturated. Times are in microseconds, from
-// std::chrono::steady_clock.
+// blocks in poll). Without --rate it runs one at a time, then paced at 50,000, 100,000 and 200,000 commands/s, then
+// saturated. Times are in microseconds, from std::chrono::steady_clock. With --csv, each row's histogram (in
+// nanoseconds) goes to FILE too (bench/latency_histogram.hpp), for scripts/plot_latency.py; its `size` column is the
+// number of connections.
 
 #include <arpa/inet.h>
 #include <fcntl.h>
@@ -35,6 +37,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <deque>
+#include <exception>
 #include <memory>
 #include <optional>
 #include <string>
@@ -43,6 +46,7 @@
 #include <variant>
 #include <vector>
 
+#include "latency_histogram.hpp"
 #include "orderbook/gateway.hpp"
 #include "orderbook/random_flow.hpp"
 #include "orderbook/text.hpp"
@@ -214,6 +218,7 @@ struct Options {
   std::size_t commands = 200'000;
   std::vector<double> rates;
   bool spin = false;  // the in-process gateway never blocks in poll
+  std::string csv;    // where each row's histogram goes ("": nowhere)
 };
 
 // A row's workload: connection c's commands come from RandomFlow seed 1000 + c; the warm-up builds about 1,000
@@ -255,17 +260,17 @@ void print_header() {
               "max", "mean");
 }
 
-void print_row(const std::string& name, std::size_t connections, std::vector<std::int64_t> samples) {
-  std::sort(samples.begin(), samples.end());
-  const auto at = [&](double q) {  // nearest rank, in microseconds
-    const auto rank = static_cast<std::size_t>(q * static_cast<double>(samples.size()) + 0.999999);
-    return static_cast<double>(samples[std::min(samples.size(), std::max<std::size_t>(rank, 1)) - 1]) / 1e3;
-  };
-  double sum = 0;
-  for (const std::int64_t s : samples) sum += static_cast<double>(s);
-  std::printf("%-32s %5zu %7.1f %7.1f %7.1f %7.1f %8.1f %8.1f %8.1f\n", name.c_str(), connections, at(0.50),
-              at(0.90), at(0.99), at(0.999), at(0.9999), static_cast<double>(samples.back()) / 1e3,
-              sum / static_cast<double>(samples.size()) / 1e3);
+// Where --csv writes each row's histogram (nowhere without it).
+latency::CsvWriter csv;
+
+// Prints the row in microseconds and writes its histogram (in nanoseconds) under `row`.
+void print_row(const std::string& name, const std::string& row, std::size_t connections,
+               std::vector<std::int64_t> samples) {
+  const latency::Summary s = latency::summarize(samples);
+  const auto us = [](std::int64_t ns) { return static_cast<double>(ns) / 1e3; };
+  std::printf("%-32s %5zu %7.1f %7.1f %7.1f %7.1f %8.1f %8.1f %8.1f\n", name.c_str(), connections, us(s.p50),
+              us(s.p90), us(s.p99), us(s.p999), us(s.p9999), us(s.max), s.mean / 1e3);
+  csv.write("gateway", row, connections, samples);
 }
 
 // One row: fresh connections, the warm-up, the timed commands, then the connections close.
@@ -278,14 +283,18 @@ void row(const Options& options, std::uint16_t port, std::size_t connections, do
   for (Connection& connection : open) ::close(connection.fd);
   const double per_second = static_cast<double>(load.timed.size()) / run.seconds;
   char name[64];
+  char csv_row[32];  // the CSV's name for the row, without the rate it got
   if (one_at_a_time) {
     std::snprintf(name, sizeof name, "one at a time (%.0fk/s)", per_second / 1e3);
+    std::snprintf(csv_row, sizeof csv_row, "one at a time");
   } else if (rate > 0) {
     std::snprintf(name, sizeof name, "paced %.0fk/s (got %.0fk/s)", rate / 1e3, per_second / 1e3);
+    std::snprintf(csv_row, sizeof csv_row, "paced %.0fk/s", rate / 1e3);
   } else {
     std::snprintf(name, sizeof name, "saturated (%.0fk/s)", per_second / 1e3);
+    std::snprintf(csv_row, sizeof csv_row, "saturated");
   }
-  print_row(name, connections, run.latency_ns);
+  print_row(name, csv_row, connections, run.latency_ns);
   if (rate > 0) std::printf("%32s sent over 50 us late: %zu of %zu\n", "", run.late, load.timed.size());
   std::fflush(stdout);
   // The gateway cancels what these connections left; let it before the next row builds its book.
@@ -295,7 +304,7 @@ void row(const Options& options, std::uint16_t port, std::size_t connections, do
 int usage() {
   std::fprintf(stderr,
                "usage: orderbook_loadgen [--port N] [--host IPV4] [--connections C] [--commands N] [--rate R]... "
-               "[--spin on|off]\n");
+               "[--spin on|off] [--csv FILE]\n");
   return 2;
 }
 
@@ -316,6 +325,8 @@ int main(int argc, char** argv) {
       options.spin = value == "on";
     } else if (flag == "--host") {
       options.host = value;
+    } else if (flag == "--csv" && !value.empty()) {
+      options.csv = value;
     } else if (flag == "--port" && numeric && number >= 1 && number <= 65'535) {
       options.port = static_cast<std::uint16_t>(number);
     } else if (flag == "--connections" && numeric && number >= 1 && number <= 1'000) {
@@ -326,6 +337,14 @@ int main(int argc, char** argv) {
       options.rates.push_back(number);
     } else {
       return usage();
+    }
+  }
+
+  if (!options.csv.empty()) {
+    try {
+      csv.open(options.csv);
+    } catch (const std::exception& error) {
+      die(error.what());
     }
   }
 

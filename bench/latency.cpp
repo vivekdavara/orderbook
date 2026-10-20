@@ -9,9 +9,10 @@
 //    wait (no coordinated omission); and saturated, sending as fast as the ring takes them, which gives the
 //    throughput and the queueing delay at it.
 //
-// Usage: orderbook_latency [COMMANDS]   (1,000,000 timed commands by default)
+// Usage: orderbook_latency [COMMANDS] [--csv FILE]   (1,000,000 timed commands by default)
 //
-// Every figure is in nanoseconds, from std::chrono::steady_clock, whose step and cost are printed first: on Apple
+// With --csv, each row's histogram goes to FILE too (bench/latency_histogram.hpp), for scripts/plot_latency.py; its
+// `size` column is the workload's target book size. Every figure is in nanoseconds, from std::chrono::steady_clock, whose step and cost are printed first: on Apple
 // silicon it counts a 24 MHz timer, so a single command (tens of nanoseconds) shows as 0, 41 or 42 ns, and only the
 // tail percentiles span several steps.
 
@@ -22,9 +23,11 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <exception>
 #include <string>
 #include <vector>
 
+#include "latency_histogram.hpp"
 #include "orderbook/book.hpp"
 #include "orderbook/engine_thread.hpp"
 #include "orderbook/map_book.hpp"
@@ -39,6 +42,7 @@ using Clock = std::chrono::steady_clock;
 std::int64_t nanoseconds(Clock::duration d) { return std::chrono::duration_cast<std::chrono::nanoseconds>(d).count(); }
 
 struct Workload {
+  std::size_t target = 0;
   std::vector<Command> warm_up;
   std::vector<Command> timed;
 };
@@ -47,6 +51,7 @@ struct Workload {
 Workload workload(std::size_t target, std::size_t count) {
   RandomFlow flow(42, FlowOptions{.target_resting = target});
   Workload load;
+  load.target = target;
   for (std::size_t i = 0; i < target * 4 + 1'000; ++i) load.warm_up.push_back(flow.next());
   for (std::size_t i = 0; i < count; ++i) load.timed.push_back(flow.next());
   return load;
@@ -60,18 +65,16 @@ void print_header(const char* first) {
               "mean");
 }
 
-// Sorts the samples and prints the row.
-void print_row(const std::string& name, std::size_t resting, std::vector<std::int64_t>& samples) {
-  std::sort(samples.begin(), samples.end());
-  const auto at = [&](double q) {  // nearest rank
-    const auto rank = static_cast<std::size_t>(q * static_cast<double>(samples.size()) + 0.999999);
-    return samples[std::min(samples.size(), std::max<std::size_t>(rank, 1)) - 1];
-  };
-  double sum = 0;
-  for (const std::int64_t s : samples) sum += static_cast<double>(s);
+// Where --csv writes each row's histogram (nowhere without it).
+latency::CsvWriter csv;
+
+// Sorts the samples, prints the row and writes its histogram.
+void print_row(const char* section, const std::string& name, std::size_t target, std::size_t resting,
+               std::vector<std::int64_t>& samples) {
+  const latency::Summary s = latency::summarize(samples);
   std::printf("%-26s %8zu %7" PRId64 " %7" PRId64 " %7" PRId64 " %7" PRId64 " %8" PRId64 " %8" PRId64 " %8.1f\n",
-              name.c_str(), resting, at(0.50), at(0.90), at(0.99), at(0.999), at(0.9999), samples.back(),
-              sum / static_cast<double>(samples.size()));
+              name.c_str(), resting, s.p50, s.p90, s.p99, s.p999, s.p9999, s.max, s.mean);
+  csv.write(section, name, target, samples);
 }
 
 void clock_report() {
@@ -113,7 +116,7 @@ void one_thread(const char* name, AnyBook book, const Workload& load) {
     const auto end = Clock::now();
     samples[i] = nanoseconds(end - start);
   }
-  print_row(name, resting, samples);
+  print_row("one thread", name, load.target, resting, samples);
 }
 
 // Sends every command, receiving while it waits, untimed.
@@ -153,7 +156,7 @@ void one_at_a_time(const Workload& load) {
     ++sequence;
   }
   engine.stop();
-  print_row("one at a time", engine.book().size(), samples);
+  print_row("engine thread", "one at a time", load.target, engine.book().size(), samples);
 }
 
 // rate 0: as fast as the ring takes them. Otherwise command i is due at start + i / rate, and is timed from then.
@@ -194,12 +197,18 @@ void paced(const Workload& load, double rate) {
   const auto slow = static_cast<std::size_t>(
       std::count_if(samples.begin(), samples.end(), [](std::int64_t s) { return s > 5'000; }));
   char name[64];
+  char row[32];  // the CSV's name for the row, without the rate it got
   if (rate > 0) {
     std::snprintf(name, sizeof name, "paced %.0fM/s (got %.2fM/s)", rate / 1e6, static_cast<double>(count) / seconds / 1e6);
+    std::snprintf(row, sizeof row, "paced %.0fM/s", rate / 1e6);
   } else {
     std::snprintf(name, sizeof name, "saturated (%.2fM/s)", static_cast<double>(count) / seconds / 1e6);
+    std::snprintf(row, sizeof row, "saturated");
   }
-  print_row(name, engine.book().size(), samples);
+  const latency::Summary s = latency::summarize(samples);
+  std::printf("%-26s %8zu %7" PRId64 " %7" PRId64 " %7" PRId64 " %7" PRId64 " %8" PRId64 " %8" PRId64 " %8.1f\n",
+              name, engine.book().size(), s.p50, s.p90, s.p99, s.p999, s.p9999, s.max, s.mean);
+  csv.write("engine thread", row, load.target, samples);
   if (rate > 0) std::printf("%26s sent over 5 us late: %zu; slower than 5 us: %zu\n", "", late, slow);
 }
 
@@ -209,9 +218,26 @@ void paced(const Workload& load, double rate) {
 int main(int argc, char** argv) {
   using namespace orderbook;
   std::size_t count = 1'000'000;
-  if (argc > 2 || (argc == 2 && (count = std::strtoull(argv[1], nullptr, 10)) == 0)) {
-    std::fprintf(stderr, "usage: orderbook_latency [COMMANDS]\n");
-    return 2;
+  const char* csv_path = nullptr;
+  bool counted = false;
+  for (int i = 1; i < argc; ++i) {
+    const std::string arg = argv[i];
+    if (arg == "--csv" && i + 1 < argc && csv_path == nullptr) {
+      csv_path = argv[++i];
+    } else if (!counted && !arg.empty() && arg[0] != '-' && (count = std::strtoull(arg.c_str(), nullptr, 10)) != 0) {
+      counted = true;
+    } else {
+      std::fprintf(stderr, "usage: orderbook_latency [COMMANDS] [--csv FILE]\n");
+      return 2;
+    }
+  }
+  if (csv_path != nullptr) {
+    try {
+      csv.open(csv_path);
+    } catch (const std::exception& error) {
+      std::fprintf(stderr, "orderbook_latency: %s\n", error.what());
+      return 1;
+    }
   }
   std::printf("orderbook_latency: %zu timed commands a row, RandomFlow seed 42 (synthetic)\n", count);
   clock_report();
