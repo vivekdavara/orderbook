@@ -1,0 +1,4 @@
+command: build/release/bench/orderbook_loadgen --rate 50000 --rate 100000 --rate 200000 --trace build/release/trace.csv
+build: release preset at 855e7a0 (Apple Clang 21 -O3), Apple M3, macOS 26.6.2
+ended 11:10:28 (about 8 s); load averages 5.04 6.49 5.91 (1, 5, 15 min) before, 4.87 6.43 5.89 after; on battery (65% at 11:06)
+the trace itself (600,000 lines, about 18 MB) isn't kept; trace_tail.txt is scripts/trace_tail.py's report of it

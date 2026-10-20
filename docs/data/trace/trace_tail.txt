@@ -1,0 +1,37 @@
+paced 50k/s: 200000 commands due over 4000 ms, 536 slower than 1000 us
+  due     1.52 to    12.30 ms:    536 slow, the worst 1.47 ms
+  leaving out  commands      p50      p90       p99     p99.9       max   (us)
+      nothing    200000     35.7     44.0      87.2    1250.4    1470.6
+  first 50 ms    197500     35.4     43.8      72.6     144.1     306.0
+  first 100 ms    195000     35.3     43.8      72.5     144.6     306.0
+paced 100k/s: 200000 commands due over 2000 ms, 5443 slower than 1000 us
+  due     0.22 to    30.44 ms:   3023 slow, the worst 14.78 ms
+  due  1080.95 to  1106.84 ms:   2380 slow, the worst 9.83 ms
+  due  1175.05 to  1176.52 ms:     16 slow, the worst 1.13 ms
+  due  1525.14 to  1525.40 ms:     24 slow, the worst 1.25 ms
+  leaving out  commands      p50      p90       p99     p99.9       max   (us)
+      nothing    200000     31.5    144.0    7989.7   14076.0   14775.8
+  first 50 ms    195000     31.3    130.4    2388.1    8708.1    9832.0
+  first 100 ms    190000     31.4    132.3    2552.0    8749.3    9832.0
+paced 200k/s: 200000 commands due over 1000 ms, 12442 slower than 1000 us
+  due     0.07 to    36.63 ms:   7310 slow, the worst 20.20 ms
+  due   283.23 to   290.26 ms:    482 slow, the worst 2.19 ms
+  due   468.27 to   470.99 ms:    516 slow, the worst 2.34 ms
+  due   479.13 to   479.31 ms:     34 slow, the worst 1.16 ms
+  due   484.49 to   486.50 ms:    399 slow, the worst 2.04 ms
+  due   543.32 to   545.69 ms:    468 slow, the worst 2.45 ms
+  due   623.15 to   623.26 ms:     17 slow, the worst 1.09 ms
+  due   700.51 to   700.58 ms:     11 slow, the worst 1.06 ms
+  due   722.34 to   723.11 ms:    151 slow, the worst 1.41 ms
+  due   728.88 to   729.58 ms:    117 slow, the worst 1.35 ms
+  due   762.74 to   765.18 ms:    184 slow, the worst 1.41 ms
+  due   779.58 to   780.62 ms:     37 slow, the worst 1.12 ms
+  due   787.88 to   801.67 ms:    929 slow, the worst 2.90 ms
+  due   823.39 to   824.02 ms:    110 slow, the worst 1.34 ms
+  due   831.50 to   831.51 ms:      2 slow, the worst 1.01 ms
+  due   889.54 to   892.20 ms:    142 slow, the worst 1.15 ms
+  due   924.00 to   937.28 ms:   1533 slow, the worst 3.52 ms
+  leaving out  commands      p50      p90       p99     p99.9       max   (us)
+      nothing    200000     42.2    633.8   16192.7   19842.3   20200.8
+  first 50 ms    190000     41.6    507.0    1807.9    2983.2    3519.7
+  first 100 ms    180000     42.3    524.5    1854.0    2999.7    3519.7

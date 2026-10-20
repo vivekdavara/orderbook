@@ -1,0 +1,10 @@
+orderbook_loadgen: 200000 timed commands a row, RandomFlow seeds 1000+ (synthetic), gateway 127.0.0.1:60839 (in this process)
+From when each command was due to its acknowledgement (us):
+mode                             conns     p50     p90     p99   p99.9   p99.99      max     mean
+paced 50k/s (got 50k/s)              4    35.7    44.0    87.2  1250.4   1447.5   1470.6     37.9
+                                 sent over 50 us late: 4 of 200000
+paced 100k/s (got 100k/s)            4    31.5   144.0  7989.7 14076.0  14682.5  14775.8    233.4
+                                 sent over 50 us late: 2945 of 200000
+paced 200k/s (got 200k/s)            4    42.2   633.8 16192.7 19842.3  20149.5  20200.8    567.4
+                                 sent over 50 us late: 584 of 200000
+gateway: 12 sessions, 459934 commands to the engine, 164817 answered by the gateway, 0 waits for ring room, 0 sessions dropped
