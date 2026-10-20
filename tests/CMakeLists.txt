@@ -168,6 +168,20 @@ if(ORDERBOOK_BUILD_BENCHMARKS)
     COMMAND ${PROJECT_SOURCE_DIR}/scripts/gateway_smoke.sh $<TARGET_FILE:orderbook_gateway_server>
             $<TARGET_FILE:orderbook_loadgen>)
   set_tests_properties(gateway.the_executable_serves_the_load_generator_and_stops_on_sigint PROPERTIES TIMEOUT 120)
+
+  # The figures' script (make histograms) on both tools' --csv files from brief runs: it draws all four figures and
+  # parses each back as XML. Python's standard library is all it needs.
+  find_package(Python3 COMPONENTS Interpreter)
+  if(Python3_Interpreter_FOUND)
+    add_test(NAME plot_latency.draws_the_four_figures_from_both_tools_csv_files
+      COMMAND sh -c "rm -rf \"$4\" && mkdir -p \"$4\" &&
+        \"$1\" 3000 --csv \"$4/latency.csv\" >/dev/null && \"$2\" --commands 2000 --csv \"$4/loadgen.csv\" >/dev/null &&
+        \"$3\" \"$5\" \"$4/latency.csv\" \"$4/loadgen.csv\" \"$4/figures\" --note test &&
+        test $(ls \"$4/figures\" | wc -l) -eq 4" sh
+              $<TARGET_FILE:orderbook_latency> $<TARGET_FILE:orderbook_loadgen> ${Python3_EXECUTABLE}
+              ${CMAKE_CURRENT_BINARY_DIR}/plot_latency ${PROJECT_SOURCE_DIR}/scripts/plot_latency.py)
+    set_tests_properties(plot_latency.draws_the_four_figures_from_both_tools_csv_files PROPERTIES TIMEOUT 120)
+  endif()
 endif()
 
 # The second day-1 review's reproductions of CLI bugs.

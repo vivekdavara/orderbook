@@ -1,7 +1,7 @@
 # Thin wrappers over the CMake presets (CMakePresets.json). `make check` is what every commit must pass.
 JOBS ?= $(shell sysctl -n hw.ncpu 2>/dev/null || nproc)
 
-.PHONY: check asan tsan bench latency loadgen soak coverage gcc-check clean
+.PHONY: check asan tsan bench latency loadgen histograms soak coverage gcc-check clean
 
 # Debug build with warnings as errors, then every test.
 check:
@@ -47,6 +47,19 @@ loadgen:
 	cmake --preset release >/dev/null
 	cmake --build --preset release -j $(JOBS) --target orderbook_loadgen orderbook_gateway_server
 	./build/release/bench/orderbook_loadgen $(LOADGEN_ARGS)
+
+# The latency figures in docs/: both measuring tools with --csv (their tables also go to build/release/latency.txt and
+# loadgen.txt), then scripts/plot_latency.py, which draws them as SVG. NOTE is a line of conditions printed at the
+# foot of each figure, e.g. NOTE="Apple M3, on power, commit abc1234".
+NOTE ?=
+histograms:
+	cmake --preset release >/dev/null
+	cmake --build --preset release -j $(JOBS) --target orderbook_latency orderbook_loadgen
+	./build/release/bench/orderbook_latency $(COMMANDS) --csv build/release/latency.csv > build/release/latency.txt
+	cat build/release/latency.txt
+	./build/release/bench/orderbook_loadgen $(LOADGEN_ARGS) --csv build/release/loadgen.csv > build/release/loadgen.txt
+	cat build/release/loadgen.txt
+	python3 scripts/plot_latency.py build/release/latency.csv build/release/loadgen.csv docs --note "$(NOTE)"
 
 # The engine against the reference model on 1.04 billion random commands in six mixes, every event compared, from the
 # optimised build (scripts/diff_soak.sh). Exits 1 on a difference and prints its shrunk scenario file.
