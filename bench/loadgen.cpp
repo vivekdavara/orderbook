@@ -13,13 +13,15 @@
 // book of about 1,000 resting orders (untimed); when they close, the gateway cancels what they left.
 //
 // Usage: orderbook_loadgen [--port N] [--host IPV4] [--connections C] [--commands N] [--rate R]... [--spin on|off]
-//                          [--csv FILE] [--trace FILE]
+//                          [--csv FILE] [--trace FILE] [--lead-in N]
 // Without --port it starts a gateway in this process, on a free port, on its own thread (--spin on: one that never
 // blocks in poll). Without --rate it runs one at a time, then paced at 50,000, 100,000 and 200,000 commands/s, then
 // saturated. Times are in microseconds, from std::chrono::steady_clock. With --csv, each row's histogram (in
 // nanoseconds) goes to FILE too (bench/latency_histogram.hpp), for scripts/plot_latency.py; its `size` column is the
 // number of connections. With --trace, every timed command goes to FILE as a line `row,index,connection,due_us,
-// latency_us` (due_us from the row's start), to see when the slow ones were due: 200,000 lines a row.
+// latency_us` (due_us from the row's start), to see when the slow ones were due: 200,000 lines a row. With
+// --lead-in N, each row sends N more commands its own way (one at a time, paced or saturated) after the warm-up and
+// before the timed ones, untimed: the timed commands then start in the row's steady state rather than at its start.
 
 #include <arpa/inet.h>
 #include <fcntl.h>
@@ -226,12 +228,14 @@ struct Options {
   bool spin = false;  // the in-process gateway never blocks in poll
   std::string csv;    // where each row's histogram goes ("": nowhere)
   std::string trace;  // where each timed command's due time and latency go ("": nowhere)
+  std::size_t lead_in = 0;  // untimed commands sent the row's way before the timed ones
 };
 
 // A row's workload: connection c's commands come from RandomFlow seed 1000 + c; the warm-up builds about 1,000
 // resting orders in all, then the timed commands go round-robin.
 struct Workload {
   std::vector<Item> warm_up;
+  std::vector<Item> lead_in;
   std::vector<Item> timed;
 };
 
@@ -248,7 +252,7 @@ Item item_of(std::size_t connection, const Command& command) {
   return item;
 }
 
-Workload workload(std::size_t connections, std::size_t commands) {
+Workload workload(std::size_t connections, std::size_t lead_in, std::size_t commands) {
   const std::size_t target = 1'000 / connections;
   std::vector<RandomFlow> flows;
   for (std::size_t c = 0; c < connections; ++c) {
@@ -258,6 +262,7 @@ Workload workload(std::size_t connections, std::size_t commands) {
   for (std::size_t i = 0; i < (target * 4 + 1'000) * connections; ++i) {
     load.warm_up.push_back(item_of(i % connections, flows[i % connections].next()));
   }
+  for (std::size_t i = 0; i < lead_in; ++i) load.lead_in.push_back(item_of(i % connections, flows[i % connections].next()));
   for (std::size_t i = 0; i < commands; ++i) load.timed.push_back(item_of(i % connections, flows[i % connections].next()));
   return load;
 }
@@ -283,10 +288,11 @@ void print_row(const std::string& name, const std::string& row, std::size_t conn
 
 // One row: fresh connections, the warm-up, the timed commands, then the connections close.
 void row(const Options& options, std::uint16_t port, std::size_t connections, double rate, bool one_at_a_time) {
-  const Workload load = workload(connections, options.commands);
+  const Workload load = workload(connections, options.lead_in, options.commands);
   std::vector<Connection> open(connections);
   for (Connection& connection : open) connection.fd = connect_to(options.host, port);
   drive(open, load.warm_up, 0, 1'024);
+  if (!load.lead_in.empty()) drive(open, load.lead_in, one_at_a_time ? 0 : rate, one_at_a_time ? 1 : 1'024);
   const Run run = drive(open, load.timed, one_at_a_time ? 0 : rate, one_at_a_time ? 1 : 1'024);
   for (Connection& connection : open) ::close(connection.fd);
   const double per_second = static_cast<double>(load.timed.size()) / run.seconds;
@@ -319,7 +325,7 @@ void row(const Options& options, std::uint16_t port, std::size_t connections, do
 int usage() {
   std::fprintf(stderr,
                "usage: orderbook_loadgen [--port N] [--host IPV4] [--connections C] [--commands N] [--rate R]... "
-               "[--spin on|off] [--csv FILE] [--trace FILE]\n");
+               "[--spin on|off] [--csv FILE] [--trace FILE] [--lead-in N]\n");
   return 2;
 }
 
@@ -344,6 +350,8 @@ int main(int argc, char** argv) {
       options.csv = value;
     } else if (flag == "--trace" && !value.empty()) {
       options.trace = value;
+    } else if (flag == "--lead-in" && numeric) {
+      options.lead_in = static_cast<std::size_t>(number);
     } else if (flag == "--port" && numeric && number >= 1 && number <= 65'535) {
       options.port = static_cast<std::uint16_t>(number);
     } else if (flag == "--connections" && numeric && number >= 1 && number <= 1'000) {
@@ -383,8 +391,10 @@ int main(int argc, char** argv) {
     port = local->port();
     loop = std::thread([&] { local->run(); });
   }
-  std::printf("orderbook_loadgen: %zu timed commands a row, RandomFlow seeds 1000+ (synthetic), gateway %s:%u%s\n",
-              options.commands, options.host.c_str(), static_cast<unsigned>(port),
+  std::printf("orderbook_loadgen: %zu timed commands a row%s, RandomFlow seeds 1000+ (synthetic), gateway %s:%u%s\n",
+              options.commands,
+              options.lead_in > 0 ? (" after " + std::to_string(options.lead_in) + " untimed").c_str() : "",
+              options.host.c_str(), static_cast<unsigned>(port),
               local ? (options.spin ? " (in this process, spinning)" : " (in this process)") : "");
   std::printf("From when each command was due to its acknowledgement (us):\n");
   print_header();

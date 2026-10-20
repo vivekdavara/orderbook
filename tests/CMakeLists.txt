@@ -180,6 +180,18 @@ if(ORDERBOOK_BUILD_BENCHMARKS)
       sed -n 1001p \"$2\" | grep -q '^paced 100k/s,999,3,'" sh
             $<TARGET_FILE:orderbook_loadgen> ${CMAKE_CURRENT_BINARY_DIR}/loadgen_trace.csv)
 
+  # --lead-in sends untimed commands before the timed ones: the gateway gets more commands, and the trace and the
+  # header count only the timed ones.
+  add_test(NAME loadgen.a_lead_in_is_sent_but_not_timed
+    COMMAND sh -c "\"$1\" --commands 500 --rate 100000 > \"$3.without\" &&
+      \"$1\" --commands 500 --rate 100000 --lead-in 300 --trace \"$2\" > \"$3\" &&
+      test $(wc -l < \"$2\") -eq 501 && grep -q '500 timed commands a row after 300 untimed' \"$3\" &&
+      without=$(sed -n 's/.* \\([0-9][0-9]*\\) commands to the engine.*/\\1/p' \"$3.without\") &&
+      with=$(sed -n 's/.* \\([0-9][0-9]*\\) commands to the engine.*/\\1/p' \"$3\") &&
+      test \"$with\" -gt $((without + 100))" sh
+            $<TARGET_FILE:orderbook_loadgen> ${CMAKE_CURRENT_BINARY_DIR}/loadgen_lead_in_trace.csv
+            ${CMAKE_CURRENT_BINARY_DIR}/loadgen_lead_in.txt)
+
   # The figures' script (make histograms) on both tools' --csv files from brief runs: it draws all four figures and
   # parses each back as XML. Python's standard library is all it needs.
   find_package(Python3 COMPONENTS Interpreter)
