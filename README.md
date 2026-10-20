@@ -725,43 +725,22 @@ branches. At `a900bb9`, 741 of 751 and 469 of 482; the second review found that 
 | CLI tests (`tests/CMakeLists.txt`) | `replay` gives exactly the expected update lines and snapshots for a hand-worked stream, the same output on both books for a random one, and fails on the tool built around the price-bug book (at the command `diff` finds) and the short-depth book; `check` passes the scenarios on both books and reports a wrong one with its line and the actual events; a 2,000-command transcript passes its own check, and so does an empty one; each book passes the other's transcript of 5,000 commands; `audit` passes 20,000 commands on each book; `diff` agrees on 100,000; the tool built around two broken books reports a difference, exits 1, prints a scenario that passes with `--book reference` and fails on the engine, and compares states as often as `--every` says; options out of range and bad arguments are reported; each exit code exactly (0, 1, 2); `version` prints the project's version |
 | Fuzz targets (`fuzz/`, in CTest) | Both on 2,000 seeded random inputs each; the text target on the scenario files whole and on each of their 465 lines, so its round-trip checks run. The book target runs both books in lockstep, comparing events and states after every command, with the Audit and `check_book` on the engine. CI's libFuzzer job runs each for 60 s instead: at `30677d4`, 1,213,736 text inputs and 192,251 book inputs (both books), no findings (at `a900bb9`, the reference model alone, 232,863 book inputs). Locally, the release build's standalone driver ran 500,000 random book inputs in 301 s at `b3af16c`, no findings |
 
-## Review of day 4
+## Release check
 
-One background agent reviewed the gateway, the depth feed and replay at `e88cabe` (10:31, 14 minutes) in a `.scratch/`
-worktree, worded as a correctness review, and wrote a failing test for each bug it found
-(`tests/review5/gateway_review_test.cpp`); each failed here before its fix (`4ea807d`):
+`scripts/release_check.sh` runs `make check` on the working tree and again on a clean `git archive` of HEAD (so
+nothing untracked or ignored helps the build), compares the export's `orderbook version` with the version in
+CMakeLists.txt's `project()` and, when HEAD has a release tag, with the tag, then runs `make asan`, `make tsan`, `make
+gcc-check` and `make soak`; `scripts/release_check.sh quick` stops after the version. It prints each step's result and
+time and exits 1 if any failed. The measurements aren't in it: they need a quiet machine, and they don't pass or fail.
+A quick run at `f2d3866` (11:18): every step passed, the clean export's build and tests in 28 s.
 
-1. **Cancels on disconnect waited for another client**: queued after the loop had decided it was idle, they sat until
-   some socket woke it, and every `book` until then showed the departed client's orders.
-2. **A long line's error jumped ahead of the answers to earlier lines**, which were then lost with the session: the
-   client never saw `accepted 1`. The error now waits in line order and the session ends once it is written.
-3. **A partial line already past the limit, behind a full turn of 256 lines**, was never checked again, and the
-   session stayed open.
-4. **The 256-byte limit counted the `\r` of `\r\n`.**
+## Reviews
 
-Its mutation checks listed 16 changes no test noticed (11 in the gateway, 5 in the feed; 5 more it judged equivalent).
-Tests now catch 12 of them (`af9d7d4`: forgetting finished orders, seen as extra cancels on disconnect; more than a
-turn of lines in one read, with and without a half-close; a client that doesn't read; five inconsistent events for the
-feed), plus a test of a reset connection. A script then re-ran those 12, the reversal of each of the 4 fixes, and the
-receive-error one (17 mutations), restoring from a copy each time: 16 fail a test. The one left, not dropping a session
-on a receive error, changes nothing here: after a reset the next receive returns 0, and the session ends at end of
-file. Still untested: stopping reading at the input limit, a turn cut short that should keep the loop from sleeping,
-and reading on a hang-up as well as on input. Its docs points (the header's promises about errors and back-pressure,
-the stats' meaning, the missing DESIGN.md sections) are fixed.
+Each day, once its core was committed, a second agent reviewed the day's code in a separate worktree, as a correctness
+review: it saved each defect it could reproduce as a failing test, listed the mutations no test caught and the docs
+claims the code contradicts, and I reproduced each finding here before fixing it. Their tests stay in `tests/review*/`.
 
-Found while building:
-
-- `orderbook_gateway` started with `&` never stopped on SIGINT: a non-interactive shell starts background jobs with
-  SIGINT ignored, and an ignored signal is discarded, so `sigwait` never returned. The end-to-end test hung until
-  CTest's timeout; `main` now resets both signals' dispositions before blocking them (`bcfd52a`).
-- CI's GCC 14 job (Linux) failed on two warnings GCC 15 on this Mac can't see: a cast to `nfds_t`, which is `unsigned
-  long` on Linux and `unsigned int` on macOS (`-Wuseless-cast`), and `errno == EAGAIN || errno == EWOULDBLOCK`
-  (`-Wlogical-op`: the two are equal, and glibc's `errno` is a const function GCC can compare). Fixed in `f7f7baa`.
-- The slow-reader test passed here and failed on every Linux job: there the kernels absorbed all 40,000 answers, so
-  the gateway's own output never passed its limit. The test now sends until the connection breaks (`6de7966`).
-- `make gcc-check` caught a shadowed variable in `replay` before it was pushed (`0f6e995`).
-
-## Review of day 1
+### Day 1
 
 One background agent reviewed the code at `ec245ab`, as a correctness review in its own worktree, in 19 minutes. It
 saved each bug it reproduced as a failing test (now in `tests/review/`), and I reproduced each one here before fixing
@@ -793,41 +772,7 @@ text fuzzer's round-trip checks were never reached in CTest (`c00291c`), that `a
 (`cd389bd`), that several generator mutants were caught only by the pinned hashes (now by properties, `2c2baee`), and
 that nothing bounded the minimizer's replays (`cdaf411`); its docs corrections are in.
 
-## Review of day 3
-
-One background agent reviewed the day's code at `3bbeb16` (the engine, the id table, the ring and the engine's thread),
-as a correctness review in its own worktree, in 16 minutes. It reproduced no bug:
-
-- 8.4 million commands of its own edge-case harness against the reference model, every event and the whole state after
-  every command, under ASan and UBSan and at -O2: books built with room for 0 to 2 orders and levels (so everything
-  grows mid-command), prices clustered at 1, 10^9 and the middle, ids near 2^64, cancels of 0, of unknown ids and of
-  2^64 - 1, copies, copy and move assignment, self-assignment, two books swapping roles mid-stream.
-- `IdTable` against `std::map`: 1,500 seeds of 4,000 operations, with ids built from the multiplier's inverse so their
-  homes collide and clusters wrap the array's end, ids near 2^64, growth from no slots.
-- A market order sweeping 40,000 makers through the engine's thread (40,002 events through a ring of 16,384) under
-  TSan: in order, one last flag, no race.
-
-Two of its hypotheses reproduced here as failing tests, and are fixed (`2e54e0d`):
-
-- **A copy of a book had no room.** Vector copies keep only what they hold, so a copy of a book built with room
-  allocated 36 times on 200,000 commands. The copy constructor now reserves the original's room first.
-- **A failed allocation could break the book.** With an allocation failing in a copy of a nearly full book, the first
-  command left an empty level (`bids depth is '9980x0' but the orders sum to ''`): `rest` made the level, then the
-  pool failed to grow. Now every event is appended before the change it reports, and `rest` makes its node, level and
-  index entry, undoing each if a later one throws, before linking anything; `AFailedAllocationLeavesAWellFormedBook`
-  fails every allocation of every command of a 3,000-command stream in turn (3,917 failures).
-
-Its surviving mutations: `take(0)` without its guard counted one id fewer (now the id table's test and the rule
-suite's rejected cancel check `size()`); the engine thread's second look at the ring after it sees the stop flag, and
-the acquire load of the flag, survived TSan and 400 repeats, since the window is a few instructions wide (no test here
-can force it without a hook in the loop; the argument is in DESIGN.md); clearing a moved-from book's vectors (libc++
-already empties them); Fibonacci hashing replaced by `id & mask` (speed only; nothing pins it); and `level.tail =
-kNoNode` when a fill empties a level, dead since the level is popped next. Its docs points (stale descriptions of day
-2's engine as `Book`, the section name in two headers, three test comments, `pool_nodes()`'s comment) are fixed; one
-was in a pushed commit message: `4aef7ef` says the 2,000-order growth test sweeps "them" in order, and it sweeps the
-bids only.
-
-## Review of day 2
+### Day 2
 
 One background agent reviewed the day's code at `9d837b3`, as a correctness review in its own worktree, in 25 minutes.
 It found no bug in the engine: a 34-command script of edge cases (ids 0 and 2^64 - 1, bounds and one past them,
@@ -868,6 +813,76 @@ fixing them:
 Its three surviving mutations now fail tests: `diff` shrinking before it reports (caught by a test build of the tool
 around a book that aborts once the shrinking starts), the CLI's `run` and `audit` ignoring `--book`, and state lines
 that accepted trailing words (`7681692` and the commit after it).
+
+### Day 3
+
+One background agent reviewed the day's code at `3bbeb16` (the engine, the id table, the ring and the engine's thread),
+as a correctness review in its own worktree, in 16 minutes. It reproduced no bug:
+
+- 8.4 million commands of its own edge-case harness against the reference model, every event and the whole state after
+  every command, under ASan and UBSan and at -O2: books built with room for 0 to 2 orders and levels (so everything
+  grows mid-command), prices clustered at 1, 10^9 and the middle, ids near 2^64, cancels of 0, of unknown ids and of
+  2^64 - 1, copies, copy and move assignment, self-assignment, two books swapping roles mid-stream.
+- `IdTable` against `std::map`: 1,500 seeds of 4,000 operations, with ids built from the multiplier's inverse so their
+  homes collide and clusters wrap the array's end, ids near 2^64, growth from no slots.
+- A market order sweeping 40,000 makers through the engine's thread (40,002 events through a ring of 16,384) under
+  TSan: in order, one last flag, no race.
+
+Two of its hypotheses reproduced here as failing tests, and are fixed (`2e54e0d`):
+
+- **A copy of a book had no room.** Vector copies keep only what they hold, so a copy of a book built with room
+  allocated 36 times on 200,000 commands. The copy constructor now reserves the original's room first.
+- **A failed allocation could break the book.** With an allocation failing in a copy of a nearly full book, the first
+  command left an empty level (`bids depth is '9980x0' but the orders sum to ''`): `rest` made the level, then the
+  pool failed to grow. Now every event is appended before the change it reports, and `rest` makes its node, level and
+  index entry, undoing each if a later one throws, before linking anything; `AFailedAllocationLeavesAWellFormedBook`
+  fails every allocation of every command of a 3,000-command stream in turn (3,917 failures).
+
+Its surviving mutations: `take(0)` without its guard counted one id fewer (now the id table's test and the rule
+suite's rejected cancel check `size()`); the engine thread's second look at the ring after it sees the stop flag, and
+the acquire load of the flag, survived TSan and 400 repeats, since the window is a few instructions wide (no test here
+can force it without a hook in the loop; the argument is in DESIGN.md); clearing a moved-from book's vectors (libc++
+already empties them); Fibonacci hashing replaced by `id & mask` (speed only; nothing pins it); and `level.tail =
+kNoNode` when a fill empties a level, dead since the level is popped next. Its docs points (stale descriptions of day
+2's engine as `Book`, the section name in two headers, three test comments, `pool_nodes()`'s comment) are fixed; one
+was in a pushed commit message: `4aef7ef` says the 2,000-order growth test sweeps "them" in order, and it sweeps the
+bids only.
+
+### Day 4
+
+One background agent reviewed the gateway, the depth feed and replay at `e88cabe` (10:31, 14 minutes) in a `.scratch/`
+worktree, worded as a correctness review, and wrote a failing test for each bug it found
+(`tests/review5/gateway_review_test.cpp`); each failed here before its fix (`4ea807d`):
+
+1. **Cancels on disconnect waited for another client**: queued after the loop had decided it was idle, they sat until
+   some socket woke it, and every `book` until then showed the departed client's orders.
+2. **A long line's error jumped ahead of the answers to earlier lines**, which were then lost with the session: the
+   client never saw `accepted 1`. The error now waits in line order and the session ends once it is written.
+3. **A partial line already past the limit, behind a full turn of 256 lines**, was never checked again, and the
+   session stayed open.
+4. **The 256-byte limit counted the `\r` of `\r\n`.**
+
+Its mutation checks listed 16 changes no test noticed (11 in the gateway, 5 in the feed; 5 more it judged equivalent).
+Tests now catch 12 of them (`af9d7d4`: forgetting finished orders, seen as extra cancels on disconnect; more than a
+turn of lines in one read, with and without a half-close; a client that doesn't read; five inconsistent events for the
+feed), plus a test of a reset connection. A script then re-ran those 12, the reversal of each of the 4 fixes, and the
+receive-error one (17 mutations), restoring from a copy each time: 16 fail a test. The one left, not dropping a session
+on a receive error, changes nothing here: after a reset the next receive returns 0, and the session ends at end of
+file. Still untested: stopping reading at the input limit, a turn cut short that should keep the loop from sleeping,
+and reading on a hang-up as well as on input. Its docs points (the header's promises about errors and back-pressure,
+the stats' meaning, the missing DESIGN.md sections) are fixed.
+
+Found while building:
+
+- `orderbook_gateway` started with `&` never stopped on SIGINT: a non-interactive shell starts background jobs with
+  SIGINT ignored, and an ignored signal is discarded, so `sigwait` never returned. The end-to-end test hung until
+  CTest's timeout; `main` now resets both signals' dispositions before blocking them (`bcfd52a`).
+- CI's GCC 14 job (Linux) failed on two warnings GCC 15 on this Mac can't see: a cast to `nfds_t`, which is `unsigned
+  long` on Linux and `unsigned int` on macOS (`-Wuseless-cast`), and `errno == EAGAIN || errno == EWOULDBLOCK`
+  (`-Wlogical-op`: the two are equal, and glibc's `errno` is a const function GCC can compare). Fixed in `f7f7baa`.
+- The slow-reader test passed here and failed on every Linux job: there the kernels absorbed all 40,000 answers, so
+  the gateway's own output never passed its limit. The test now sends until the connection breaks (`6de7966`).
+- `make gcc-check` caught a shadowed variable in `replay` before it was pushed (`0f6e995`).
 
 ## Design decisions
 
