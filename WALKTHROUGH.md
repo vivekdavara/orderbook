@@ -391,12 +391,14 @@ what the steady state costs. The honest next step is an untimed paced lead-in be
 measures the steady state directly instead of cutting a run afterwards.
 
 **So what makes the start of a row slow?**
-Not known yet. Each row opens fresh connections after a 200 ms pause (in which the gateway cancels the last row's
-orders) and an untimed saturated warm-up of 8,000 commands, then paces. Ruled out: the gateway's wakeup from `poll`
-(day 4: spinning gave the same p99). Left: the scheduler running threads that idled through the pause on efficiency
-cores or at a low clock until they have run for a while (macOS has no thread affinity on Apple silicon), and the new
-connections. To separate them: keep the connections across rows, drop the pause, add the lead-in, and set the threads'
-QoS class; on Linux, pin the threads and fix the CPU frequency.
+A cold start, confirmed by the experiment the cut suggested: `--lead-in 20000` sends 20,000 untimed commands the
+row's way before the timed ones, and alternated with runs without it, the p99 at 200,000 commands a second went from
+16.7 and 17.6 ms to 64 and 68 µs, and the slowest command from about 21 ms to 0.4 and 0.8 ms (on a busier machine,
+load average 10 to 14). Which part is cold isn't separated: the lead-in warms both the threads (which idled through
+the 200 ms pause between rows, and which macOS may run on efficiency cores or at a low clock until they have run a
+while) and the new connections. Ruled out: the gateway's wakeup from `poll` (day 4). To separate them: keep the
+connections across rows, drop the pause, set the threads' QoS class; on Linux, pin the threads and fix the CPU
+frequency.
 
 **How do you know the figures show what they say?**
 Each point is a bucket at its lower bound, so it is within 3.1% below the exact value in the table. A CTest test runs
@@ -408,6 +410,15 @@ The first figures said "1,000 resting orders" for a book of 583. The CSV's size 
 `target_resting` (100, 1,000, 10,000), which the stream approaches but doesn't reach (70, 583, 5,410 after the
 warm-up). The column now holds the orders resting after the warm-up (the same on every book, since they agree event
 for event), and the script takes each figure's size from the data instead of naming one.
+
+**What did the release review find?**
+Five defects, each reproduced as a failing test first (`tests/review6/`). The best one: the histogram's bins are an
+eighth of a doubling's linear span, which on a log axis is 0.093 to 0.170 of a doubling, so plotting a share per bin
+drew a sawtooth at every power of two that wasn't in the data; dividing by each bin's log width fixed it. Then brief
+runs crashing the script, a one-sample row drawn off the plot, labels past the edge, and a comment saying the load
+generator's warm-up built 1,000 resting orders when it builds about 500 (the same target-versus-book mistake as the
+day's first bug, in another tool). It also listed seven mutations no test caught; three are tested now, and the README
+names the other four.
 
 **What does v1.0.0 promise?**
 CHANGELOG.md says it: the rules in DESIGN.md (validation and its order, matching, the events and their order), the text

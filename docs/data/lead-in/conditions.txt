@@ -1,0 +1,6 @@
+run 1, --lead-in 0: start 11:22:19, load averages: 13.68 11.40 8.12, -InternalBattery-0 (id=22282339)	56%
+run 1, --lead-in 20000: start 11:22:27, load averages: 13.43 11.42 8.16, -InternalBattery-0 (id=22282339)	56%
+run 2, --lead-in 0: start 11:22:36, load averages: 12.59 11.28 8.13, -InternalBattery-0 (id=22282339)	56%
+run 2, --lead-in 20000: start 11:22:43, load averages: 11.19 11.02 8.08, -InternalBattery-0 (id=22282339)	56%
+end 11:22:52, load averages: 10.09 10.79 8.03
+command: build/release/bench/orderbook_loadgen --rate 50000 --rate 100000 --rate 200000 [--lead-in 20000], release build at ccb238a

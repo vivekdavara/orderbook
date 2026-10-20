@@ -13,8 +13,9 @@ file. Day 3 rebuilt the engine for speed without changing an event (a pool of or
 FIFO levels, sorted level vectors, an open-addressing id table; nothing allocated once the book has room), kept day
 2's as the baseline, and put the engine on its own thread between two lock-free rings. Day 4 put a TCP order gateway
 in front of it (port 8107) and an L2 market-data feed behind it, with `orderbook replay` and a load generator. Day 5
-drew latency histograms from both measuring tools, traced the gateway's millisecond tail to the first 50 ms of each
-run, added `orderbook version`, and released v1.0.0.
+drew latency histograms from both measuring tools, traced the gateway's millisecond tail to a cold start (the first
+tens of milliseconds of a run; after an untimed lead-in its p99 at 200,000 commands a second is 64 to 68 µs, not 17
+ms), added `orderbook version` and a release check, and released v1.0.0.
 
 ## Results at a glance
 
@@ -28,7 +29,7 @@ commands. Each line's command, conditions and runs are in the section it links t
 | A command's time in the book | p50 41 ns (one step of the clock), p99 83 ns, p99.99 167 ns at 5,410 resting orders, in each of three runs ([v1.0.0](#results-v100)) |
 | Through the engine's thread and both rings | p50 167 ns one at a time; 13.8 to 16.7 million commands a second saturated ([v1.0.0](#results-v100)) |
 | Through the TCP gateway, loopback | p50 29 to 30 µs one at a time (p99 37 to 40 µs); 2.64 to 2.73 million commands a second over 4 connections, saturated ([v1.0.0](#results-v100)) |
-| The gateway's tail, paced | p99 16 to 17 ms at 200,000 commands a second, nearly all of it in the first 50 ms of a run: without them, p99 1.8 ms ([v1.0.0](#results-v100)) |
+| The gateway's tail, paced | p99 16 to 18 ms at 200,000 commands a second from a run's first command, a cold start: after 20,000 untimed commands, p99 64 to 68 µs and the slowest under 1 ms ([v1.0.0](#results-v100)) |
 
 ![Latency by percentile through the gateway: one at a time, and paced at 50k, 100k and 200k commands a second](docs/gateway_percentiles.svg)
 
@@ -241,7 +242,7 @@ configure time as release tarballs pinned by SHA-256.
 make check
 ```
 
-Configures the `dev` preset (Debug, warnings as errors) into `build/dev`, builds everything, and runs the 316 tests.
+Configures the `dev` preset (Debug, warnings as errors) into `build/dev`, builds everything, and runs the 324 tests.
 `make asan` runs them under AddressSanitizer and UndefinedBehaviorSanitizer; `make tsan` runs the threaded ones (the
 ring's, the engine thread's and the gateway's) under ThreadSanitizer; `make bench` builds the `release` preset (-O3)
 and runs the benchmarks; `make latency` runs the latency percentiles (below); `make loadgen` runs the gateway's load
@@ -418,12 +419,24 @@ late:
   The 100k/s row's remaining maximum (9.8 ms) is an episode mid-row (commands due from 1,081 to 1,107 ms), in a row
   whose load generator was itself late 2,945 times; at 200k/s, 16 more episodes, the worst of each 1.0 to 3.5 ms, are
   spread through the second.
-- **What makes a row's start slow isn't separated yet.** Each row opens fresh connections after a 200 ms pause (in
-  which the gateway cancels the last row's orders), runs an untimed saturated warm-up of 8,000 commands (about 3
-  ms at the saturated rate above), then paces. Not the gateway's wakeup from `poll` (day 4: spinning gave the same p99). Left: the
-  scheduler running the threads that idled through the pause on efficiency cores or at a low clock until they have run
-  a while, and the new connections. An untimed paced lead-in would separate a cold start from the steady state; the
-  numbers above are what a client sees from its first command.
+- **A lead-in removes it: the tail is a cold start.** Each row opens fresh connections after a 200 ms pause (in
+  which the gateway cancels the last row's orders), runs an untimed saturated warm-up of 8,000 commands (about 3 ms
+  at the saturated rate above), then paces. `--lead-in 20000` sends 20,000 more commands the row's way, untimed,
+  before the timed ones (100 ms at 200k/s, 400 ms at 50k/s). Alternated with runs without it (`orderbook_loadgen
+  --rate 50000 --rate 100000 --rate 200000 [--lead-in 20000]` at `ccb238a`, 11:22:19 to 11:22:52, on battery at 56%,
+  **load average 10 to 14** with Chrome busy; [docs/data/lead-in/](docs/data/lead-in/)); µs, p99 / p99.9 / max:
+
+  | Row | Without a lead-in, runs 1 and 2 | After 20,000 untimed commands, runs 1 and 2 |
+  |---|---|---|
+  | Paced 50k/s | 77.3 / 1,002.4 / 1,304.5 (4 late); 75.2 / 1,627.6 / 1,969.3 (3 late) | 72.6 / 139.9 / 299.2 (3 late); 72.6 / 130.0 / 238.6 (0 late) |
+  | Paced 100k/s | 9,944.4 / 17,315.7 / 19,634.7 (4,069 late); 3,206.1 / 10,448.9 / 11,137.4 (2 late) | 53.2 / 184.5 / 309.2 (5 late); 79.0 / 217.4 / 339.8 (8 late) |
+  | Paced 200k/s | 16,706.3 / 20,120.8 / 20,449.4 (28 late); 17,640.0 / 21,263.3 / 21,521.2 (712 late) | 64.3 / 141.0 / 376.5 (24 late); 68.1 / 443.7 / 812.4 (34 late) |
+
+  Warmed, the gateway's p99 at 200,000 commands a second is 64 to 68 µs, about 260 times lower, and the
+  mid-row episodes of the trace's run are gone too, on a busier machine. The numbers in the tables above are what a
+  client sees from its first command. Which part is cold isn't separated: the lead-in warms the threads (which idled
+  through the pause, and which macOS may run on efficiency cores or at a low clock until they have run a while) and
+  the new connections at once. Not the gateway's wakeup from `poll` (day 4: spinning gave the same p99).
 
 ## Results (day 4)
 
@@ -683,7 +696,7 @@ core's.
 
 ## Tests
 
-316 tests (`make check`), each a separate CTest test. CI runs them on four jobs (GCC 14 and Clang 18 on Ubuntu, Apple
+324 tests (`make check`), each a separate CTest test. CI runs them on four jobs (GCC 14 and Clang 18 on Ubuntu, Apple
 Clang on macOS, each Debug and Release, and Clang under ASan and UBSan), runs the threaded ones under ThreadSanitizer
 on a fifth (`make tsan`: the ring's, the engine thread's and the gateway's), fuzzes on a sixth, and runs `make soak`
 with GCC 14 on a seventh: at `f833616`, `24 runs, 1040000000 commands, in 71 s`. The first three also run the
@@ -723,7 +736,8 @@ branches. At `a900bb9`, 741 of 751 and 469 of 482; the second review found that 
 | `review/*.cpp`, `review2/` | The two day-1 reviews' reproductions, kept as regression tests: 0-lot trades after a fill; a stream starting near a price bound; double spoils that broke one rule; an empty transcript `check` rejected |
 | `minimize_test.cpp` | The minimizer keeps exactly what a failure needs, in order, and is 1-minimal; 1,000 commands shrink in under 100 replays (56); random runs that catch two deliberately broken books shrink to 3 commands and to 1 |
 | `latency_histogram_test.cpp` | The measuring tools' histogram: bucket bounds worked out by hand (100, 1,000 and 1,000,000 ns, and the int64 maximum, whose bucket ends at 2^63), every bucket contiguous with the next and at most 1/32 of its lower bound wide, every value from 0 to 200,000 and 200,000 random ones at every scale inside its bucket; nearest-rank percentiles; the CSV file line for line, and names it can't hold |
-| `plot_latency` and `loadgen` tests (CTest) | Both tools' `--csv` files from brief runs give all four figures, each parsed back as XML; `--trace` writes a line for each timed command |
+| `plot_latency` and `loadgen` tests (CTest) | Both tools' `--csv` files from brief runs give all four figures, each parsed back as XML; each figure takes the book size it names (`plot_latency_test.py`); `--trace` writes a line for each timed command, each paced one due exactly on its schedule; `--lead-in` commands reach the gateway untimed |
+| `review6/` | The day-5 review's reproductions: the histogram's bins drawn as if equal on a log axis, brief runs and one-sample rows, end labels past the edge (`plot_latency_review_test.py`); the load generator's warm-up counted on a real gateway, about 500 resting orders (`loadgen_warm_up_test.cpp`) |
 | `scripts/gateway_smoke.sh` (CTest) | `orderbook_gateway` on a free port serves the load generator (2,000 commands, 4 connections), stops on SIGINT with exit 0 and counts the 4 sessions |
 | CLI tests (`tests/CMakeLists.txt`) | `replay` gives exactly the expected update lines and snapshots for a hand-worked stream, the same output on both books for a random one, and fails on the tool built around the price-bug book (at the command `diff` finds) and the short-depth book; `check` passes the scenarios on both books and reports a wrong one with its line and the actual events; a 2,000-command transcript passes its own check, and so does an empty one; each book passes the other's transcript of 5,000 commands; `audit` passes 20,000 commands on each book; `diff` agrees on 100,000; the tool built around two broken books reports a difference, exits 1, prints a scenario that passes with `--book reference` and fails on the engine, and compares states as often as `--every` says; options out of range and bad arguments are reported; each exit code exactly (0, 1, 2); `version` prints the project's version |
 | Fuzz targets (`fuzz/`, in CTest) | Both on 2,000 seeded random inputs each; the text target on the scenario files whole and on each of their 465 lines, so its round-trip checks run. The book target runs both books in lockstep, comparing events and states after every command, with the Audit and `check_book` on the engine. CI's libFuzzer job runs each for 60 s instead: at `30677d4`, 1,213,736 text inputs and 192,251 book inputs (both books), no findings (at `a900bb9`, the reference model alone, 232,863 book inputs). Locally, the release build's standalone driver ran 500,000 random book inputs in 301 s at `b3af16c`, no findings |
@@ -887,6 +901,34 @@ Found while building:
   the gateway's own output never passed its limit. The test now sends until the connection breaks (`6de7966`).
 - `make gcc-check` caught a shadowed variable in `replay` before it was pushed (`0f6e995`).
 
+### Day 5 (the release)
+
+One agent at `17848a7` (11:01 to 11:22), on the whole repo, worded as a correctness and docs-against-code review. It
+reproduced five defects, each saved as a failing test in `tests/review6/`, and I reproduced each here before fixing
+it:
+
+1. **The gateway histogram drew a step at every power of two that isn't in the data.** Its bins are an eighth of a
+   doubling's linear span, so on the log axis they are 0.093 to 0.170 of a doubling wide, and their heights were
+   shares per bin: a distribution flat in log(latency) drew as a sawtooth falling 1.85 times across each doubling.
+   Each share is now divided by its bin's width on the axis (`c2dafbe`). The review's check compared the bins'
+   heights; with the log share axis added after the reviewed commit it passed the bug at 1.07 times, so it also
+   checks the spread of the bins' tops now (19.1 px with the bug, 1.1 px fixed).
+2. **Brief runs crashed the script**: rows of two samples left an empty x range (`ZeroDivisionError`), one-sample
+   rows or samples all in one bucket an empty y range, a 0 ns sample `log10(0)`.
+3. **A row of one sample was drawn left of the axis**, invisible.
+4. **End labels ran past the figure's edge** (already fixed by `8b353a4`'s wider margin).
+5. **The load generator's warm-up builds about 500 resting orders, not "about 1,000"** as its comments and day 4's
+   results said: `RandomFlow`'s target counts orders it may still cancel, filled ones too. Its test sends loadgen's
+   warm-up to a real gateway and counts the book from the cancels on disconnect: 512 to 519 on 4 connections, 550 on
+   1. The measurements used this warm-up, so the docs changed (`787527f`).
+
+Its docs points are fixed: the test counts, the figures' docstring, `orderbook_latency`'s "resting" column (the book
+after the warm-up in some rows and at the end of the row in others; now after the warm-up in every row), the
+histogram's width claim below 32 ns. Of seven mutations no test caught, three now fail tests (nearest rank rounded to
+the nearest, the load generator's due time taken from the send, the figure's book size); untested still: the
+latency tool's due time (it has no trace), the 50 µs late threshold, the percentile curve's start point and the
+histogram's share level. Not reproduced: an error line lost to a reset on Linux (macOS read it in 20 of 20 runs).
+
 ## Design decisions
 
 - **Integer ticks and lots, as distinct types.** Exact comparison and sums, and a quantity passed where a price
@@ -985,8 +1027,9 @@ Found while building:
   move by up to ten times. They are to be measured again on power with nothing else running.
 - The gateway (day 4) has no authentication, TLS, rate limits or self-trade prevention, and listens on loopback by
   default; its protocol is text, in ticks and lots. Paced one command a write, its latency tail from 100,000 commands a
-  second is in milliseconds, nearly all of it from the first 50 ms of a run (day 5); what makes a run's start slow
-  isn't separated yet. A session ended for a long line is closed with whatever the
+  second is in milliseconds from a run's first command, a cold start of tens of milliseconds (day 5); warmed by 20,000
+  untimed commands, its p99 is 53 to 79 µs at 100k and 200k/s. Which part is cold (the threads' cores and clocks after
+  idling, the new connections) isn't separated. A session ended for a long line is closed with whatever the
   client sent after the line unread, so the client may see a reset rather than an end of file. Out of descriptors,
   `accept` fails each turn and the loop spins until one is free.
 - The depth feed uses standard containers, so it allocates as orders rest and levels appear, and costs about 50 ns a
