@@ -486,8 +486,10 @@ a run without `--csv` checks them too.
 **The figures** (`scripts/plot_latency.py LATENCY_CSV LOADGEN_CSV OUT_DIR`, Python's standard library only): latency
 by percentile for the engine's thread (the middle book size), for each book's own time a command (the largest) and
 for the gateway, each bucket drawn at its lower bound on log axes from the median to the slowest command; and the
-gateway's rows as shares of commands in bins of an eighth of a doubling, with the share on a log axis too, so a tail
-of a few commands a bin shows beside a mode of a fifth of them. Colours are the first four slots of a categorical
+gateway's rows as shares of commands by latency: bins of four buckets (an eighth of a doubling's linear span, so 0.093
+to 0.170 of a doubling on the log axis), each share divided by its bin's width on that axis in eighths of a doubling,
+so a distribution flat in log(latency) draws flat (the day-5 review's first finding), and the share on a log axis
+too, so a tail of a few commands a bin shows beside a mode of a fifth of them. Colours are the first four slots of a categorical
 palette checked for colour-vision deficiency, with dark-mode steps. Each file is parsed back as XML before it counts as
 written.
 
