@@ -6,6 +6,7 @@
 //   orderbook [--book B] audit SEED COUNT [opts] run a random stream with every invariant check on; print a summary
 //   orderbook diff SEED COUNT [opts] [--every N] run a random stream through the reference model and the engine,
 //                                                comparing every event, and their states every N commands (1,000)
+//   orderbook version                            print the version and how this binary was built
 //   orderbook [--book B] replay [FILE] [--every N] [--levels K] [--updates]
 //                                                replay commands (from FILE or stdin) through a book and the depth
 //                                                feed built from its events; print an L2 snapshot (K levels a side,
@@ -45,6 +46,7 @@
 #include "orderbook/reference_book.hpp"
 #include "orderbook/scenario.hpp"
 #include "orderbook/text.hpp"
+#include "orderbook/version.hpp"
 
 // The engine the tool runs. A test build (tests/CMakeLists.txt) puts a deliberately broken book here, so that the CLI
 // tests can check the tool's own failure paths: diff's report, its exit code and the scenario it prints, and that
@@ -71,8 +73,34 @@ int usage() {
                "       orderbook gen SEED COUNT [--target N] [--range N] [--max-quantity N] [--invalid PER_MILLE]\n"
                "       orderbook [--book engine|reference] audit SEED COUNT [same options as gen]\n"
                "       orderbook diff SEED COUNT [same options as gen] [--every N]\n"
-               "       orderbook [--book engine|reference] replay [FILE] [--every N] [--levels K] [--updates]\n";
+               "       orderbook [--book engine|reference] replay [FILE] [--every N] [--levels K] [--updates]\n"
+               "       orderbook version\n";
   return kUsageError;
+}
+
+#ifndef ORDERBOOK_BUILD_TYPE
+#define ORDERBOOK_BUILD_TYPE ""
+#endif
+
+// The version from CMakeLists.txt's project(), then the compiler, the build type and whether assertions are on.
+int version() {
+#if defined(__clang__)
+  const char* compiler = "Clang " __clang_version__;
+#elif defined(__GNUC__)
+  const char* compiler = "GCC " __VERSION__;
+#else
+  const char* compiler = "an unknown compiler";
+#endif
+#ifdef NDEBUG
+  const char* assertions = "assertions off";
+#else
+  const char* assertions = "assertions on";
+#endif
+  const std::string build_type = ORDERBOOK_BUILD_TYPE;
+  std::cout << "orderbook " << kVersion << "\n"
+            << "built with " << compiler << ", C++ " << __cplusplus << ", "
+            << (build_type.empty() ? std::string() : build_type + ", ") << assertions << "\n";
+  return 0;
 }
 
 // Through rdbuf() rather than istreambuf_iterator: with the iterator, GCC 14 at -O3 reports a "potential null pointer
@@ -367,6 +395,7 @@ int main(int argc, char** argv) {
   if (args.empty()) return usage();
   const std::string& verb = args[0];
   const std::vector<std::string> rest(args.begin() + 1, args.end());
+  if (verb == "version") return rest.empty() && !book_named ? version() : usage();
   if (verb == "check") return engine ? check<Engine>(rest) : check<ReferenceBook>(rest);
   if (verb == "run") {
     if (rest.empty()) return engine ? run<Engine>(std::cin) : run<ReferenceBook>(std::cin);

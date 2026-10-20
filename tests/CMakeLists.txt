@@ -72,6 +72,10 @@ set_tests_properties(cli.diff_finds_the_books_agree PROPERTIES
 add_test(NAME cli.options_out_of_range_are_reported COMMAND orderbook_cli gen 1 10 --range 600000000)
 set_tests_properties(cli.options_out_of_range_are_reported PROPERTIES
   PASS_REGULAR_EXPRESSION "orderbook: price_range must be 0 to 499999999, got 600000000")
+# The version is the one in CMakeLists.txt's project() call, on the first line.
+add_test(NAME cli.version_is_the_projects COMMAND orderbook_cli version)
+set_tests_properties(cli.version_is_the_projects PROPERTIES
+  PASS_REGULAR_EXPRESSION "^orderbook ${PROJECT_VERSION}\nbuilt with ")
 add_test(NAME cli.usage_is_printed_for_bad_arguments COMMAND orderbook_cli gen 1)
 set_tests_properties(cli.usage_is_printed_for_bad_arguments PROPERTIES
   PASS_REGULAR_EXPRESSION "usage: orderbook .--book engine.reference. check FILE")
@@ -197,6 +201,8 @@ cli_exit_test(cli.exit.check_of_a_wrong_scenario_is_1 1 check ${CMAKE_CURRENT_SO
 cli_exit_test(cli.exit.check_of_a_missing_file_is_1 1 check ${CMAKE_CURRENT_BINARY_DIR}/no_such_file.txt)
 cli_exit_test(cli.exit.run_of_a_bad_command_is_1 1 run ${CMAKE_CURRENT_SOURCE_DIR}/cli/bad_command.txt)
 cli_exit_test(cli.exit.bad_arguments_are_2 2 gen 1)
+cli_exit_test(cli.exit.version_is_0 0 version)
+cli_exit_test(cli.exit.version_with_arguments_is_2 2 version now)
 cli_exit_test(cli.exit.options_out_of_range_are_2 2 gen 1 10 --range 600000000)
 cli_exit_test(cli.exit.no_arguments_are_2 2)
 cli_exit_test(cli.exit.a_passing_audit_is_0 0 audit 5 2000 --target 50)

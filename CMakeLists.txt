@@ -30,6 +30,9 @@ if(ORDERBOOK_FUZZ)
   add_compile_options(-fsanitize=fuzzer-no-link)
 endif()
 
+# The version, from project() above, as a header in the build tree (include/orderbook/version.hpp).
+configure_file(cmake/version.hpp.in ${PROJECT_BINARY_DIR}/include/orderbook/version.hpp @ONLY)
+
 # The engine: the book itself, its thread and rings, its vocabulary types and their text form, and the market data
 # built from its events.
 add_library(orderbook
@@ -39,7 +42,7 @@ add_library(orderbook
   src/text.cpp
   src/types.cpp)
 add_library(orderbook::orderbook ALIAS orderbook)
-target_include_directories(orderbook PUBLIC ${PROJECT_SOURCE_DIR}/include)
+target_include_directories(orderbook PUBLIC ${PROJECT_SOURCE_DIR}/include ${PROJECT_BINARY_DIR}/include)
 target_compile_features(orderbook PUBLIC cxx_std_20)
 target_link_libraries(orderbook PUBLIC Threads::Threads)
 orderbook_set_warnings(orderbook)
@@ -73,6 +76,7 @@ orderbook_set_warnings(orderbook_testkit)
 # The command-line tool over the test kit (tools/orderbook_cli.cpp), installed as `orderbook`.
 add_executable(orderbook_cli tools/orderbook_cli.cpp)
 set_target_properties(orderbook_cli PROPERTIES OUTPUT_NAME orderbook)
+target_compile_definitions(orderbook_cli PRIVATE ORDERBOOK_BUILD_TYPE="${CMAKE_BUILD_TYPE}")
 target_link_libraries(orderbook_cli PRIVATE orderbook::testkit)
 orderbook_set_warnings(orderbook_cli)
 
