@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- `orderbook_latency --trace FILE`: each paced and saturated command of the engine's thread, `row,resting,index,
+  due_ns,latency_ns`, and a test that every paced command is timed from its schedule (the day-5 review found that
+  mechanism untested).
+
 ## v1.0.0 (2026-10-20)
 
 The first release, built over five days (October 16 to 20, 2026). What a later 1.x keeps: the rules in DESIGN.md

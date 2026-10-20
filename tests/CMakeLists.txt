@@ -182,6 +182,14 @@ if(ORDERBOOK_BUILD_BENCHMARKS)
       awk -F, 'NR > 1 && $4 != sprintf(\"%.3f\", $2 * 10) { late++ } END { exit late > 0 }' \"$2\"" sh
             $<TARGET_FILE:orderbook_loadgen> ${CMAKE_CURRENT_BINARY_DIR}/loadgen_trace.csv)
 
+  # orderbook_latency's --trace: every paced command is timed from when it was due, start + index / rate (1 µs apart
+  # at 1M/s, 200 ns at 5M/s), not from when it was sent; a line for each command of the 9 traced rows.
+  add_test(NAME latency.paced_commands_are_timed_from_their_schedule
+    COMMAND sh -c "\"$1\" 2000 --trace \"$2\" >/dev/null && test $(wc -l < \"$2\") -eq 18001 &&
+      awk -F, 'NR > 1 && ($1 == \"paced 1M/s\" && $4 != $3 * 1000 || $1 == \"paced 5M/s\" && $4 != $3 * 200) { off++ }
+        NR > 1 && $5 < 0 { off++ } END { exit off > 0 }' \"$2\"" sh
+            $<TARGET_FILE:orderbook_latency> ${CMAKE_CURRENT_BINARY_DIR}/latency_trace.csv)
+
   # --lead-in sends untimed commands before the timed ones: the gateway gets more commands, and the trace and the
   # header count only the timed ones. On one connection, so that the two runs' counts differ only by the lead-in and
   # what it leaves resting (here 5,421 to 5,423 against 5,664 to 5,665). On four connections it failed once on CI's

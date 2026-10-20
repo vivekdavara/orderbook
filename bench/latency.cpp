@@ -9,10 +9,12 @@
 //    wait (no coordinated omission); and saturated, sending as fast as the ring takes them, which gives the
 //    throughput and the queueing delay at it.
 //
-// Usage: orderbook_latency [COMMANDS] [--csv FILE]   (1,000,000 timed commands by default)
+// Usage: orderbook_latency [COMMANDS] [--csv FILE] [--trace FILE]   (1,000,000 timed commands by default)
 //
 // With --csv, each row's histogram goes to FILE too (bench/latency_histogram.hpp), for scripts/plot_latency.py; its
-// `size` column is the number of orders resting after the row's warm-up. Every figure is in nanoseconds, from std::chrono::steady_clock, whose step and cost are printed first: on Apple
+// `size` column is the number of orders resting after the row's warm-up. With --trace, each paced and saturated row
+// of the engine's thread writes a line a command, `row,resting,index,due_ns,latency_ns` (due_ns from the row's
+// start: when the command was due, or when it was sent for the saturated rows). Every figure is in nanoseconds, from std::chrono::steady_clock, whose step and cost are printed first: on Apple
 // silicon it counts a 24 MHz timer, so a single command (tens of nanoseconds) shows as 0, 41 or 42 ns, and only the
 // tail percentiles span several steps.
 
@@ -71,8 +73,9 @@ void print_header(const char* first) {
               "mean");
 }
 
-// Where --csv writes each row's histogram (nowhere without it).
+// Where --csv writes each row's histogram (nowhere without it), and --trace the paced rows' commands.
 latency::CsvWriter csv;
+std::FILE* trace = nullptr;
 
 // Sorts the samples, prints the row and writes its histogram. A row's `resting` is the orders resting after its
 // warm-up, the book its timed commands start against, in the table and the CSV alike. (Until v1.0.0 the engine
@@ -216,6 +219,16 @@ void paced(const Workload& load, double rate) {
     std::snprintf(name, sizeof name, "saturated (%.2fM/s)", static_cast<double>(count) / seconds / 1e6);
     std::snprintf(row, sizeof row, "saturated");
   }
+  if (trace != nullptr) {  // before summarize sorts the samples
+    for (std::size_t i = 0; i < count; ++i) {
+      std::fprintf(trace, "%s,%zu,%zu,%" PRId64 ",%" PRId64 "\n", row, load.resting, i, nanoseconds(due[i] - start),
+                   samples[i]);
+    }
+    if (std::fflush(trace) != 0) {
+      std::fprintf(stderr, "orderbook_latency: writing the trace failed\n");
+      std::exit(1);
+    }
+  }
   const latency::Summary s = latency::summarize(samples);
   std::printf("%-26s %8zu %7" PRId64 " %7" PRId64 " %7" PRId64 " %7" PRId64 " %8" PRId64 " %8" PRId64 " %8.1f\n",
               name, load.resting, s.p50, s.p90, s.p99, s.p999, s.p9999, s.max, s.mean);
@@ -230,15 +243,18 @@ int main(int argc, char** argv) {
   using namespace orderbook;
   std::size_t count = 1'000'000;
   const char* csv_path = nullptr;
+  const char* trace_path = nullptr;
   bool counted = false;
   for (int i = 1; i < argc; ++i) {
     const std::string arg = argv[i];
     if (arg == "--csv" && i + 1 < argc && csv_path == nullptr) {
       csv_path = argv[++i];
+    } else if (arg == "--trace" && i + 1 < argc && trace_path == nullptr) {
+      trace_path = argv[++i];
     } else if (!counted && !arg.empty() && arg[0] != '-' && (count = std::strtoull(arg.c_str(), nullptr, 10)) != 0) {
       counted = true;
     } else {
-      std::fprintf(stderr, "usage: orderbook_latency [COMMANDS] [--csv FILE]\n");
+      std::fprintf(stderr, "usage: orderbook_latency [COMMANDS] [--csv FILE] [--trace FILE]\n");
       return 2;
     }
   }
@@ -249,6 +265,14 @@ int main(int argc, char** argv) {
       std::fprintf(stderr, "orderbook_latency: %s\n", error.what());
       return 1;
     }
+  }
+  if (trace_path != nullptr) {
+    trace = std::fopen(trace_path, "w");
+    if (trace == nullptr) {
+      std::fprintf(stderr, "orderbook_latency: can't write %s\n", trace_path);
+      return 1;
+    }
+    std::fputs("row,resting,index,due_ns,latency_ns\n", trace);
   }
   std::printf("orderbook_latency: %zu timed commands a row, RandomFlow seed 42 (synthetic)\n", count);
   clock_report();

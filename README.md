@@ -242,7 +242,7 @@ configure time as release tarballs pinned by SHA-256.
 make check
 ```
 
-Configures the `dev` preset (Debug, warnings as errors) into `build/dev`, builds everything, and runs the 324 tests.
+Configures the `dev` preset (Debug, warnings as errors) into `build/dev`, builds everything, and runs the 325 tests.
 `make asan` runs them under AddressSanitizer and UndefinedBehaviorSanitizer; `make tsan` runs the threaded ones (the
 ring's, the engine thread's and the gateway's) under ThreadSanitizer; `make bench` builds the `release` preset (-O3)
 and runs the benchmarks; `make latency` runs the latency percentiles (below); `make loadgen` runs the gateway's load
@@ -251,7 +251,8 @@ generator against a gateway in its own process (`LOADGEN_ARGS="--port 8107"` for
 model on 1.04 billion random commands (below); `make coverage` reports the tests' line and branch coverage (Clang
 only); `make gcc-check` compiles the project's files with GCC 15, Debug and Release, warnings as errors.
 `orderbook_loadgen --trace FILE` writes every timed command's due time and latency, and `scripts/trace_tail.py FILE`
-reports when the slow ones were due.
+reports when the slow ones were due; `orderbook_latency --trace FILE` writes its paced and saturated rows' commands
+the same way.
 
 The command-line tool (`build/dev/orderbook`; `check`, `run` and `audit` use the engine unless given
 `--book reference`):
@@ -696,7 +697,7 @@ core's.
 
 ## Tests
 
-324 tests (`make check`), each a separate CTest test. CI runs them on four jobs (GCC 14 and Clang 18 on Ubuntu, Apple
+325 tests (`make check`), each a separate CTest test. CI runs them on four jobs (GCC 14 and Clang 18 on Ubuntu, Apple
 Clang on macOS, each Debug and Release, and Clang under ASan and UBSan), runs the threaded ones under ThreadSanitizer
 on a fifth (`make tsan`: the ring's, the engine thread's and the gateway's), fuzzes on a sixth, and runs `make soak`
 with GCC 14 on a seventh: at `f833616`, `24 runs, 1040000000 commands, in 71 s`. The first three also run the
@@ -736,7 +737,7 @@ branches. At `a900bb9`, 741 of 751 and 469 of 482; the second review found that 
 | `review/*.cpp`, `review2/` | The two day-1 reviews' reproductions, kept as regression tests: 0-lot trades after a fill; a stream starting near a price bound; double spoils that broke one rule; an empty transcript `check` rejected |
 | `minimize_test.cpp` | The minimizer keeps exactly what a failure needs, in order, and is 1-minimal; 1,000 commands shrink in under 100 replays (56); random runs that catch two deliberately broken books shrink to 3 commands and to 1 |
 | `latency_histogram_test.cpp` | The measuring tools' histogram: bucket bounds worked out by hand (100, 1,000 and 1,000,000 ns, and the int64 maximum, whose bucket ends at 2^63), every bucket contiguous with the next and at most 1/32 of its lower bound wide, every value from 0 to 200,000 and 200,000 random ones at every scale inside its bucket; nearest-rank percentiles; the CSV file line for line, and names it can't hold |
-| `plot_latency` and `loadgen` tests (CTest) | Both tools' `--csv` files from brief runs give all four figures, each parsed back as XML; each figure takes the book size it names (`plot_latency_test.py`); `--trace` writes a line for each timed command, each paced one due exactly on its schedule; `--lead-in` commands reach the gateway untimed |
+| `plot_latency` and `loadgen` tests (CTest) | Both tools' `--csv` files from brief runs give all four figures, each parsed back as XML; each figure takes the book size it names (`plot_latency_test.py`); `--trace` writes a line for each timed command, each paced one due exactly on its schedule, in both tools; `--lead-in` commands reach the gateway untimed |
 | `review6/` | The day-5 review's reproductions: the histogram's bins drawn as if equal on a log axis, brief runs and one-sample rows, end labels past the edge (`plot_latency_review_test.py`); the load generator's warm-up counted on a real gateway, about 500 resting orders (`loadgen_warm_up_test.cpp`) |
 | `scripts/gateway_smoke.sh` (CTest) | `orderbook_gateway` on a free port serves the load generator (2,000 commands, 4 connections), stops on SIGINT with exit 0 and counts the 4 sessions |
 | CLI tests (`tests/CMakeLists.txt`) | `replay` gives exactly the expected update lines and snapshots for a hand-worked stream, the same output on both books for a random one, and fails on the tool built around the price-bug book (at the command `diff` finds) and the short-depth book; `check` passes the scenarios on both books and reports a wrong one with its line and the actual events; a 2,000-command transcript passes its own check, and so does an empty one; each book passes the other's transcript of 5,000 commands; `audit` passes 20,000 commands on each book; `diff` agrees on 100,000; the tool built around two broken books reports a difference, exits 1, prints a scenario that passes with `--book reference` and fails on the engine, and compares states as often as `--every` says; options out of range and bad arguments are reported; each exit code exactly (0, 1, 2); `version` prints the project's version |
@@ -926,10 +927,9 @@ it:
 
 Its docs points are fixed: the test counts, the figures' docstring, `orderbook_latency`'s "resting" column (the book
 after the warm-up in some rows and at the end of the row in others; now after the warm-up in every row), the
-histogram's width claim below 32 ns. Of seven mutations no test caught, three now fail tests (nearest rank rounded to
-the nearest, the load generator's due time taken from the send, the figure's book size); untested still: the
-latency tool's due time (it has no trace), the 50 µs late threshold, the percentile curve's start point and the
-histogram's share level. Not reproduced: an error line lost to a reset on Linux (macOS read it in 20 of 20 runs).
+histogram's width claim below 32 ns. Of seven mutations no test caught, four now fail tests (nearest rank rounded to
+the nearest, each tool's paced due time taken from the send, through a trace of each, and the figure's book size);
+untested still: the 50 µs late threshold, the percentile curve's start point and the histogram's share level. Not reproduced: an error line lost to a reset on Linux (macOS read it in 20 of 20 runs).
 
 ## Design decisions
 
