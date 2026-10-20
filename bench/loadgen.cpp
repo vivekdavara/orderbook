@@ -13,12 +13,13 @@
 // book of about 1,000 resting orders (untimed); when they close, the gateway cancels what they left.
 //
 // Usage: orderbook_loadgen [--port N] [--host IPV4] [--connections C] [--commands N] [--rate R]... [--spin on|off]
-//                          [--csv FILE]
+//                          [--csv FILE] [--trace FILE]
 // Without --port it starts a gateway in this process, on a free port, on its own thread (--spin on: one that never
 // blocks in poll). Without --rate it runs one at a time, then paced at 50,000, 100,000 and 200,000 commands/s, then
 // saturated. Times are in microseconds, from std::chrono::steady_clock. With --csv, each row's histogram (in
 // nanoseconds) goes to FILE too (bench/latency_histogram.hpp), for scripts/plot_latency.py; its `size` column is the
-// number of connections.
+// number of connections. With --trace, every timed command goes to FILE as a line `row,index,connection,due_us,
+// latency_us` (due_us from the row's start), to see when the slow ones were due: 200,000 lines a row.
 
 #include <arpa/inet.h>
 #include <fcntl.h>
@@ -135,6 +136,7 @@ std::optional<std::uint64_t> acknowledged(std::string_view line, bool& for_cance
 
 struct Run {
   std::vector<std::int64_t> latency_ns;  // by item
+  std::vector<std::int64_t> due_ns;      // by item, from the start
   std::size_t late = 0;                  // paced commands sent more than 50 us after they were due
   double seconds = 0;
 };
@@ -208,6 +210,10 @@ Run drive(std::vector<Connection>& connections, const std::vector<Item>& items, 
     }
   }
   run.seconds = std::chrono::duration<double>(Clock::now() - start).count();
+  run.due_ns.reserve(items.size());
+  for (const Clock::time_point when : due) {
+    run.due_ns.push_back(std::chrono::duration_cast<std::chrono::nanoseconds>(when - start).count());
+  }
   return run;
 }
 
@@ -219,6 +225,7 @@ struct Options {
   std::vector<double> rates;
   bool spin = false;  // the in-process gateway never blocks in poll
   std::string csv;    // where each row's histogram goes ("": nowhere)
+  std::string trace;  // where each timed command's due time and latency go ("": nowhere)
 };
 
 // A row's workload: connection c's commands come from RandomFlow seed 1000 + c; the warm-up builds about 1,000
@@ -260,8 +267,9 @@ void print_header() {
               "max", "mean");
 }
 
-// Where --csv writes each row's histogram (nowhere without it).
+// Where --csv writes each row's histogram (nowhere without it), and --trace each timed command.
 latency::CsvWriter csv;
+std::FILE* trace = nullptr;
 
 // Prints the row in microseconds and writes its histogram (in nanoseconds) under `row`.
 void print_row(const std::string& name, const std::string& row, std::size_t connections,
@@ -295,6 +303,13 @@ void row(const Options& options, std::uint16_t port, std::size_t connections, do
     std::snprintf(csv_row, sizeof csv_row, "saturated");
   }
   print_row(name, csv_row, connections, run.latency_ns);
+  if (trace != nullptr) {
+    for (std::size_t i = 0; i < load.timed.size(); ++i) {
+      std::fprintf(trace, "%s,%zu,%zu,%.3f,%.3f\n", csv_row, i, load.timed[i].connection,
+                   static_cast<double>(run.due_ns[i]) / 1e3, static_cast<double>(run.latency_ns[i]) / 1e3);
+    }
+    if (std::fflush(trace) != 0) die("writing the trace failed");
+  }
   if (rate > 0) std::printf("%32s sent over 50 us late: %zu of %zu\n", "", run.late, load.timed.size());
   std::fflush(stdout);
   // The gateway cancels what these connections left; let it before the next row builds its book.
@@ -304,7 +319,7 @@ void row(const Options& options, std::uint16_t port, std::size_t connections, do
 int usage() {
   std::fprintf(stderr,
                "usage: orderbook_loadgen [--port N] [--host IPV4] [--connections C] [--commands N] [--rate R]... "
-               "[--spin on|off] [--csv FILE]\n");
+               "[--spin on|off] [--csv FILE] [--trace FILE]\n");
   return 2;
 }
 
@@ -327,6 +342,8 @@ int main(int argc, char** argv) {
       options.host = value;
     } else if (flag == "--csv" && !value.empty()) {
       options.csv = value;
+    } else if (flag == "--trace" && !value.empty()) {
+      options.trace = value;
     } else if (flag == "--port" && numeric && number >= 1 && number <= 65'535) {
       options.port = static_cast<std::uint16_t>(number);
     } else if (flag == "--connections" && numeric && number >= 1 && number <= 1'000) {
@@ -346,6 +363,11 @@ int main(int argc, char** argv) {
     } catch (const std::exception& error) {
       die(error.what());
     }
+  }
+  if (!options.trace.empty()) {
+    trace = std::fopen(options.trace.c_str(), "w");
+    if (trace == nullptr) die("can't write " + options.trace);
+    std::fputs("row,index,connection,due_us,latency_us\n", trace);
   }
 
   // Without --port, a gateway in this process: its loop on a thread of its own (and the engine's on another).
@@ -381,5 +403,6 @@ int main(int argc, char** argv) {
                 " answered by the gateway, %" PRIu64 " waits for ring room, %" PRIu64 " sessions dropped\n",
                 stats.sessions, stats.commands, stats.gateway_answers, stats.ring_full, stats.dropped_sessions);
   }
+  if (trace != nullptr && std::fclose(trace) != 0) die("writing the trace failed");
   return 0;
 }

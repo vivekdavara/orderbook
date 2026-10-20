@@ -173,6 +173,13 @@ if(ORDERBOOK_BUILD_BENCHMARKS)
             $<TARGET_FILE:orderbook_loadgen>)
   set_tests_properties(gateway.the_executable_serves_the_load_generator_and_stops_on_sigint PROPERTIES TIMEOUT 120)
 
+  # The load generator's --trace: a header, then a line for each timed command of each row.
+  add_test(NAME loadgen.trace_has_a_line_for_each_timed_command
+    COMMAND sh -c "\"$1\" --commands 1000 --rate 100000 --trace \"$2\" >/dev/null &&
+      test $(wc -l < \"$2\") -eq 1001 && head -1 \"$2\" | grep -qx 'row,index,connection,due_us,latency_us' &&
+      sed -n 1001p \"$2\" | grep -q '^paced 100k/s,999,3,'" sh
+            $<TARGET_FILE:orderbook_loadgen> ${CMAKE_CURRENT_BINARY_DIR}/loadgen_trace.csv)
+
   # The figures' script (make histograms) on both tools' --csv files from brief runs: it draws all four figures and
   # parses each back as XML. Python's standard library is all it needs.
   find_package(Python3 COMPONENTS Interpreter)
