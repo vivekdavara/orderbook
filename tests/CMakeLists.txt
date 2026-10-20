@@ -183,13 +183,17 @@ if(ORDERBOOK_BUILD_BENCHMARKS)
             $<TARGET_FILE:orderbook_loadgen> ${CMAKE_CURRENT_BINARY_DIR}/loadgen_trace.csv)
 
   # --lead-in sends untimed commands before the timed ones: the gateway gets more commands, and the trace and the
-  # header count only the timed ones.
+  # header count only the timed ones. On one connection, so that the two runs' counts differ only by the lead-in and
+  # what it leaves resting (here 5,421 to 5,423 against 5,664 to 5,665). On four connections it failed once on CI's
+  # macOS runner (run 39452730927) and printed nothing; how the gateway interleaves four sessions is timing, and the
+  # book and its count with it, the likeliest cause. It prints both counts now.
   add_test(NAME loadgen.a_lead_in_is_sent_but_not_timed
-    COMMAND sh -c "\"$1\" --commands 500 --rate 100000 > \"$3.without\" &&
-      \"$1\" --commands 500 --rate 100000 --lead-in 300 --trace \"$2\" > \"$3\" &&
+    COMMAND sh -c "\"$1\" --connections 1 --commands 500 --rate 100000 > \"$3.without\" &&
+      \"$1\" --connections 1 --commands 500 --rate 100000 --lead-in 300 --trace \"$2\" > \"$3\" &&
       test $(wc -l < \"$2\") -eq 501 && grep -q '500 timed commands a row after 300 untimed' \"$3\" &&
       without=$(sed -n 's/.* \\([0-9][0-9]*\\) commands to the engine.*/\\1/p' \"$3.without\") &&
       with=$(sed -n 's/.* \\([0-9][0-9]*\\) commands to the engine.*/\\1/p' \"$3\") &&
+      echo \"commands to the engine: $without without the lead-in, $with with it\" &&
       test \"$with\" -gt $((without + 100))" sh
             $<TARGET_FILE:orderbook_loadgen> ${CMAKE_CURRENT_BINARY_DIR}/loadgen_lead_in_trace.csv
             ${CMAKE_CURRENT_BINARY_DIR}/loadgen_lead_in.txt)

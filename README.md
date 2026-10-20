@@ -749,7 +749,9 @@ nothing untracked or ignored helps the build), compares the export's `orderbook 
 CMakeLists.txt's `project()` and, when HEAD has a release tag, with the tag, then runs `make asan`, `make tsan`, `make
 gcc-check` and `make soak`; `scripts/release_check.sh quick` stops after the version. It prints each step's result and
 time and exits 1 if any failed. The measurements aren't in it: they need a quiet machine, and they don't pass or fail.
-A quick run at `f2d3866` (11:18): every step passed, the clean export's build and tests in 28 s.
+A quick run at `f2d3866` (11:18): every step passed, the clean export's build and tests in 28 s. The full run at
+`1cc772a`, the release commit (12:04:40 to 12:07): every step passed, in 9 s (check), 30 s (clean export), 42 s
+(asan), 18 s (tsan), 4 s (gcc-check) and 45 s (soak).
 
 ## Reviews
 
