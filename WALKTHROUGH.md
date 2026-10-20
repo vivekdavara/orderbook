@@ -23,6 +23,11 @@ Reading order for day 4: DESIGN.md "Market data (day 4)" and "The gateway (day 4
 `end_sessions`), `tools/gateway_main.cpp` (the signals), then `tests/gateway_test.cpp` and `bench/loadgen.cpp`
 (`drive`).
 
+Reading order for day 5: README "Results at a glance" and "Results (v1.0.0)", then `bench/latency_histogram.hpp`
+(`bucket_of`, `lower_of`, `at_quantile`, `CsvWriter`), `scripts/plot_latency.py` (`percentile_figure`), the trace in
+`bench/loadgen.cpp` (`row`) and `scripts/trace_tail.py`, then `tests/latency_histogram_test.cpp`, CHANGELOG.md and
+`docs/data/`.
+
 ## The project
 
 **What is it, in a minute?**
@@ -340,6 +345,82 @@ macOS can't see.
 **What would you do next with the gateway?**
 Trace the paced tail (where the milliseconds go), then a binary protocol and a batched write per turn per session,
 pinning on Linux, and pushing market data over UDP multicast with the gap recovery the subscriber already has.
+
+## The latency histograms and the release (day 5)
+
+**What did day 5 add?**
+Histograms of the latencies both measuring tools already timed (`--csv FILE` on `orderbook_latency` and
+`orderbook_loadgen`), a script that draws them (`scripts/plot_latency.py`, `make histograms`), a per-command trace for
+the gateway's load generator (`--trace FILE`) with a script that says when the slow commands were due
+(`scripts/trace_tail.py`), `orderbook version`, the release docs and v1.0.0. No change to the engine, its thread or
+the gateway.
+
+**Why these buckets?**
+They are HdrHistogram's layout: one bucket a nanosecond below 64 ns, then 32 to each doubling (`bucket_of` takes the
+doubling from the leading zeros and the top six bits as the bucket within it). So every bucket is at most 1/32 (3.1%)
+of its lower bound wide, at 50 ns and at 50 ms alike, the bounds are whole nanoseconds, and 2^63 ns needs under 2,000
+buckets. Fixed-width bins would be too coarse at the small end or far too many at the large end; bins a tenth of a
+decade wide would have fractional bounds and several empty bins below 10 ns.
+
+**You keep every sample anyway. Why a histogram?**
+The tables' percentiles do come from the sorted samples, exactly (`at_quantile`, nearest rank). The histogram is the
+form that goes in a file and a figure: 1,000,000 samples become a few hundred buckets, two runs' files can be added
+bucket by bucket, and the shape (a mode, a second mode, a flat tail) is visible in it. HdrHistogram exists for
+programs that can't keep their samples; this one can, so it keeps both.
+
+**How do you read the percentile figures?**
+The x axis is 1/(1 - p) on a log scale, so 90%, 99%, 99.9% and 99.99% are evenly spaced: each step right is a ten
+times rarer command. The y axis is latency, also log. A flat line means most commands cost the same; a cliff is where
+a different cause takes over; a line ends at its slowest command. In the gateway's figure (run 1), the paced lines stay under 100 µs for 99.2% of the
+commands at 50k/s, 98.1% at 100k/s and 95.4% at 200k/s, then climb two to three decades: the last 1 to 5% are a
+different population.
+
+**How did you find where the gateway's tail came from?**
+Its p99 at 200,000 commands a second was 16 to 17 ms in all three runs, and the maximum 19.7 to 21.1 ms (day 4's runs:
+15.5 to 18.0, 19.0 to 21.4), with the sender on time. Chance stalls don't repeat like that. So I traced every command
+(`--trace`: row, index, connection, due time, latency) and grouped the slow ones by when they were due
+(`trace_tail.py`): in every paced row the worst episode starts as the row starts. At 200k/s, the 7,310 commands over
+1 ms due in the first 37 ms include the row's slowest (20.2 ms); the first five commands of each row took 149 to 493
+µs against medians of 32 to 42 µs, so a backlog builds while the start is slow and drains after. Without each row's
+first 50 ms, the p99 at 200k/s is 1.8 ms, not 16.2.
+
+**Isn't leaving out the first 50 ms cheating?**
+It would be if it replaced the full numbers; it doesn't. The README's tables and figures are every command from the
+first, which is what a client that connects and starts sending sees. The cut numbers answer a different question:
+what the steady state costs. The honest next step is an untimed paced lead-in before the timed commands, which
+measures the steady state directly instead of cutting a run afterwards.
+
+**So what makes the start of a row slow?**
+Not known yet. Each row opens fresh connections after a 200 ms pause (in which the gateway cancels the last row's
+orders) and an untimed saturated warm-up of 8,000 commands, then paces. Ruled out: the gateway's wakeup from `poll`
+(day 4: spinning gave the same p99). Left: the scheduler running threads that idled through the pause on efficiency
+cores or at a low clock until they have run for a while (macOS has no thread affinity on Apple silicon), and the new
+connections. To separate them: keep the connections across rows, drop the pause, add the lead-in, and set the threads'
+QoS class; on Linux, pin the threads and fix the CPU frequency.
+
+**How do you know the figures show what they say?**
+Each point is a bucket at its lower bound, so it is within 3.1% below the exact value in the table. A CTest test runs
+both tools briefly, draws all four figures from their real files and parses each back as XML; it fails if one isn't
+drawn. And I read the first figures against the tables, which is how the first bug below was found.
+
+**Tell me about a bug you found today.**
+The first figures said "1,000 resting orders" for a book of 583. The CSV's size column held `RandomFlow`'s
+`target_resting` (100, 1,000, 10,000), which the stream approaches but doesn't reach (70, 583, 5,410 after the
+warm-up). The column now holds the orders resting after the warm-up (the same on every book, since they agree event
+for event), and the script takes each figure's size from the data instead of naming one.
+
+**What does v1.0.0 promise?**
+CHANGELOG.md says it: the rules in DESIGN.md (validation and its order, matching, the events and their order), the text
+formats of commands, events and scenario files, the gateway's protocol, the tool's commands and exit codes, and
+`Book`'s interface. A change to any of those is a major version. `orderbook version` prints the version from
+`project()` in CMakeLists.txt, through a header CMake generates, so it has one source.
+
+**Every number is from a laptop on battery. How much does that matter?**
+Less for the medians, which repeat from run to run (the engine's thread 167 ns one at a time in all three runs, the
+gateway 29 to 30 µs), than for the tails, which move by up to ten times (the engine thread's one-at-a-time max: 10.5 to
+126.7 µs). So the README reports three runs, not the best one, names the run the figures come from, and labels every
+result with the power and the load. The comparisons that matter, such as one book against another, are made in the
+same run.
 
 ## Testing
 
