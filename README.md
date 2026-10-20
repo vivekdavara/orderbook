@@ -4,20 +4,33 @@ A limit order book and matching engine in C++20: price-time priority, with limit
 (IOC) and cancel orders, built to be checked against a written specification and then made fast without changing
 a single event.
 
-**Status: day 4 of 5.** Day 1 built the specification ([DESIGN.md](DESIGN.md)), the shared types and text format,
-the reference model that implements the rules literally, and the test kit around it (scenario files, a seeded random
-command stream, invariant checks, a minimizer for failing runs, two fuzz targets, a command-line tool, benchmarks,
-coverage, CI on Linux and macOS). Day 2 added the matching engine (price levels in a map, a FIFO queue per level, an
-id index for cancels) and a differential harness that runs it against the reference model, comparing every event of
-720,000 random commands in the tests (and as many as wanted from the CLI), and shrinks any disagreement to a scenario
-file. Day 3 rebuilt the engine for speed without changing an event (`Book`: order nodes in a pool linked by index,
-intrusive FIFO levels, sorted level vectors, an open-addressing id table; nothing allocated once the book has room),
-kept day 2's as `MapBook`, the baseline, and put the engine on its own thread between two lock-free single-producer
-single-consumer rings, with latency percentiles measured from the sender's side. Day 4 put a TCP order gateway in
-front of it (port 8107: clients' own ids mapped to the engine's, fills to each side, answers in line order, cancel on
-disconnect, back-pressure) and an L2 market-data feed behind it, built from the engine's events (snapshots, an update
-line per command for subscribers, gap detection), with `orderbook replay` for synthetic streams and a load generator
-that times each command from when it was due.
+**Status: v1.0.0, released on day 5 of 5** (2026-10-20; [CHANGELOG.md](CHANGELOG.md)). Day 1 wrote the
+specification ([DESIGN.md](DESIGN.md)) and built the means of checking a book against it: a reference model that
+implements the rules literally, scenario files, a seeded random command stream, invariant checks, a minimizer for
+failing runs, fuzz targets, benchmarks and CI on Linux and macOS. Day 2 added the matching engine and a differential
+harness that compares every event it produces with the reference model's and shrinks any disagreement to a scenario
+file. Day 3 rebuilt the engine for speed without changing an event (a pool of order nodes linked by index, intrusive
+FIFO levels, sorted level vectors, an open-addressing id table; nothing allocated once the book has room), kept day
+2's as the baseline, and put the engine on its own thread between two lock-free rings. Day 4 put a TCP order gateway
+in front of it (port 8107) and an L2 market-data feed behind it, with `orderbook replay` and a load generator. Day 5
+drew latency histograms from both measuring tools, traced the gateway's millisecond tail to the first 50 ms of each
+run, added `orderbook version`, and released v1.0.0.
+
+## Results at a glance
+
+On an Apple M3 laptop (macOS 26.6.2, Apple Clang 21 at -O3), **on battery** with desktop apps open; synthetic
+commands. Each line's command, conditions and runs are in the section it links to.
+
+| What | Measured |
+|---|---|
+| The engine against the reference model | every event the same on 1.04 billion random commands in six mixes, on every CI run ([day 2](#results-day-2)) |
+| The engine's throughput, one thread | 53.6 to 96.7 million commands a second, at 5,410 down to 7 resting orders ([day 4](#results-day-4); the engine is unchanged since day 3) |
+| A command's time in the book | p50 41 ns (one step of the clock), p99 83 ns, p99.99 167 ns at 5,410 resting orders, in each of three runs ([v1.0.0](#results-v100)) |
+| Through the engine's thread and both rings | p50 167 ns one at a time; 13.8 to 16.7 million commands a second saturated ([v1.0.0](#results-v100)) |
+| Through the TCP gateway, loopback | p50 29 to 30 µs one at a time (p99 37 to 40 µs); 2.64 to 2.73 million commands a second over 4 connections, saturated ([v1.0.0](#results-v100)) |
+| The gateway's tail, paced | p99 16 to 17 ms at 200,000 commands a second, nearly all of it in the first 50 ms of a run: without them, p99 1.8 ms ([v1.0.0](#results-v100)) |
+
+![Latency by percentile through the gateway: one at a time, and paced at 50k, 100k and 200k commands a second](docs/gateway_percentiles.svg)
 
 ## Why it is built this way
 
@@ -228,13 +241,16 @@ configure time as release tarballs pinned by SHA-256.
 make check
 ```
 
-Configures the `dev` preset (Debug, warnings as errors) into `build/dev`, builds everything, and runs the 296 tests.
+Configures the `dev` preset (Debug, warnings as errors) into `build/dev`, builds everything, and runs the 316 tests.
 `make asan` runs them under AddressSanitizer and UndefinedBehaviorSanitizer; `make tsan` runs the threaded ones (the
 ring's, the engine thread's and the gateway's) under ThreadSanitizer; `make bench` builds the `release` preset (-O3)
 and runs the benchmarks; `make latency` runs the latency percentiles (below); `make loadgen` runs the gateway's load
-generator against a gateway in its own process (`LOADGEN_ARGS="--port 8107"` for one started separately); `make soak` runs the engine against the reference
+generator against a gateway in its own process (`LOADGEN_ARGS="--port 8107"` for one started separately); `make histograms` runs both of those with `--csv` and draws the figures in
+`docs/` (`NOTE="..."` puts a line of conditions at their foot); `make soak` runs the engine against the reference
 model on 1.04 billion random commands (below); `make coverage` reports the tests' line and branch coverage (Clang
 only); `make gcc-check` compiles the project's files with GCC 15, Debug and Release, warnings as errors.
+`orderbook_loadgen --trace FILE` writes every timed command's due time and latency, and `scripts/trace_tail.py FILE`
+reports when the slow ones were due.
 
 The command-line tool (`build/dev/orderbook`; `check`, `run` and `audit` use the engine unless given
 `--book reference`):
@@ -247,6 +263,7 @@ build/dev/orderbook audit 1 100000 --target 500   # a random run with every inva
 build/dev/orderbook diff 1 1000000 --target 500   # the engine against the reference model, event for event
 build/dev/orderbook gen 1 1000000 | build/dev/orderbook replay --every 100000   # L2 snapshots of a synthetic stream
 build/release/orderbook_gateway   # the TCP gateway on 127.0.0.1:8107, until Ctrl-C
+build/dev/orderbook version   # the version (from CMakeLists.txt's project()) and how the binary was built
 ```
 
 `run`'s transcript is itself a scenario file, ending with the book's whole state, so a failing random case can be
@@ -320,6 +337,93 @@ review, every file the harness writes also ends with checks of the expected book
 `= best asks ...`, `= resting N`, `= last-accepted N`; the example above, from before, ends with depth only), so the
 broken book fails it whichever part differed. Before, a difference in the best price, the number resting, the last
 accepted id or a queue's order shrank to a file whose events and depth were right, which the broken book passed.
+
+## Results (v1.0.0)
+
+Measured on day 5 at `17848a7`: the release's measuring tools around day 4's engine, thread and gateway. Apple M3
+(macOS 26.6.2, Apple Clang 21 at -O3), **on battery** (69% to 68%, Low Power Mode off, desktop apps open, load
+average 4.2 to 5.3), three runs in a row from 11:00:05 to 11:01:07, each `orderbook_latency 1000000 --csv FILE` then
+`orderbook_loadgen --csv FILE` (as `make histograms` runs them). Each run's tables, histograms and conditions are in
+[docs/data/](docs/data/); the figures are run 1's, the first, drawn by `scripts/plot_latency.py`. Synthetic commands
+from `RandomFlow`. A percentile figure plots each histogram bucket at its lower bound, so a point is at most 3.1%
+below the exact value in the tables.
+
+**Each book's own time a command**: one thread, a clock read either side of `apply`, 1,000,000 commands against
+5,410 resting orders; nanoseconds, p50 / p99 / p99.99 / max:
+
+| Book | Run 1 | Run 2 | Run 3 |
+|---|---|---|---|
+| Reference model | 1,334 / 5,417 / 10,625 / 28,458 | 1,334 / 5,417 / 10,542 / 21,084 | 1,334 / 5,417 / 10,292 / 15,792 |
+| Day 2's engine (`MapBook`) | 42 / 167 / 1,125 / 15,833 | 42 / 167 / 334 / 4,625 | 42 / 167 / 1,042 / 5,000 |
+| Engine | 41 / 83 / 167 / 7,583 | 41 / 83 / 167 / 1,500 | 41 / 83 / 167 / 9,292 |
+
+![Each book's time a command by percentile, at 5,410 resting orders](docs/one_thread_percentiles.svg)
+
+The clock steps in 41 to 42 ns, so the engine's median command (about 20 ns, from the benchmarks) shows as 41 ns; its
+p99.99 is four steps in every run. Day 2's engine has the same median and a tail several times longer (its maps and
+lists allocate and chase pointers); the reference model scans the book, so its time grows with it: a median of 1.3 µs
+at 5,410 resting orders.
+
+**The engine's thread**, from sending a command to receiving its last event: 1,000,000 commands against 583 resting
+orders (562 by the end of each row); nanoseconds, p50 / p99 / p99.9 / max, and paced commands sent over 5 µs late:
+
+| Mode | Run 1 | Run 2 | Run 3 |
+|---|---|---|---|
+| One at a time | 167 / 250 / 292 / 25,000 | 167 / 292 / 625 / 126,667 | 167 / 250 / 333 / 10,542 |
+| Paced 1M/s | 209 / 250 / 2,125 / 37,417 (63 late) | 209 / 417 / 9,500 / 56,042 (881 late) | 208 / 250 / 1,542 / 17,625 (153 late) |
+| Paced 5M/s | 183 / 275 / 1,092 / 12,692 (32 late) | 183 / 275 / 1,958 / 12,892 (152 late) | 183 / 258 / 1,925 / 13,650 (214 late) |
+| Saturated | 250 / 417 / 13,458 / 24,625 at 16.68M/s | 333 / 459 / 10,334 / 13,959 at 13.78M/s | 292 / 417 / 7,375 / 14,625 at 14.82M/s |
+
+![The engine's thread by percentile: one at a time, paced at 1M and 5M commands a second, and saturated](docs/engine_thread_percentiles.svg)
+
+The medians are the same in every run: 167 ns one at a time (the request ring, the book, the report ring), 183 to 209
+ns paced. The tails are the machine's: the one-at-a-time max is 10.5 to 126.7 µs from run to run, and the paced p99.9
+1.1 to 9.5 µs, with the measuring thread itself late 32 to 881 times. Two spinning threads on a laptop with other work
+running are descheduled now and then, and timing from when each command was due charges such a stall to every
+command due during it.
+
+**The gateway over TCP**, from when each command was due to its acknowledgement: 200,000 commands a row, each row on
+fresh connections after an untimed warm-up; microseconds, p50 / p99 / p99.9 / max, and paced commands sent over 50 µs
+late:
+
+| Mode | Connections | Run 1 | Run 2 | Run 3 |
+|---|---|---|---|---|
+| One at a time | 1 | 30.3 / 39.5 / 73.4 / 557.9 at 36k/s | 29.2 / 37.7 / 62.2 / 140.8 at 37k/s | 30.0 / 37.4 / 61.9 / 157.9 at 37k/s |
+| Paced 50k/s | 4 | 31.6 / 86.6 / 2,634.2 / 2,880.9 (5 late) | 31.9 / 81.7 / 2,246.6 / 2,377.4 (4 late) | 37.7 / 100.9 / 174.9 / 359.2 (33 late) |
+| Paced 100k/s | 4 | 29.9 / 5,514.4 / 13,281.0 / 14,014.1 (0 late) | 31.8 / 22,100.8 / 37,859.3 / 41,008.9 (7,585 late) | 31.2 / 5,775.3 / 13,399.4 / 14,237.2 (1 late) |
+| Paced 200k/s | 4 | 37.1 / 16,380.8 / 19,724.3 / 20,027.1 (52 late) | 38.9 / 17,177.5 / 20,737.0 / 21,131.5 (392 late) | 39.2 / 15,956.4 / 19,380.7 / 19,749.8 (59 late) |
+| Saturated | 4 | 1,321.3 / 1,488.9 / 2,099.6 / 2,099.6 at 2729k/s | 1,234.7 / 1,532.6 / 2,172.5 / 2,172.5 at 2635k/s | 1,363.5 / 1,554.8 / 2,102.9 / 2,102.9 at 2694k/s |
+
+![The gateway's commands as shares of each row, by latency](docs/gateway_histogram.svg)
+
+- **The medians hold at every rate**: 29 to 30 µs one at a time, 30 to 39 µs paced, at 50,000 to 200,000 commands a
+  second. Nearly all of a round trip is the sockets (the engine's thread takes 167 ns of it).
+- **The paced p99 is in milliseconds from 100,000 commands a second**: 5.5 to 5.8 ms at 100k/s (22.1 ms in run 2,
+  whose load generator was itself late 7,585 times), 16.0 to 17.2 ms at 200k/s with the maximum at 19.7 to 21.1 ms in
+  all three runs, and day 4's runs gave 15.5 to 18.0 ms and 19.0 to 21.4 ms. Too steady for chance stalls, with the
+  sender on time.
+- **It is the start of each row.** `orderbook_loadgen --trace FILE` writes every command's due time and latency, and
+  `scripts/trace_tail.py` reports when the slow ones were due (a run at `855e7a0`, 11:10, load average 4.9 to 5.0;
+  its output is [docs/data/trace/](docs/data/trace/)). In every paced row the worst episode starts as the row starts:
+  at 200k/s, 7,310 commands over 1 ms were due in its first 37 ms, the worst 20.2 ms (the row's maximum); at 50k/s,
+  all 536 commands over 1 ms were due in its first 12 ms. The first five commands of each row took 149 to 493 µs,
+  against medians of 32 to 42 µs, so a backlog builds, then drains. Leaving out the first 50 ms of each row:
+
+  | Row | p99, all | p99, without the first 50 ms | max, all | max, without |
+  |---|---|---|---|---|
+  | Paced 50k/s | 87.2 µs | 72.6 µs | 1,470.6 µs | 306.0 µs |
+  | Paced 100k/s | 7,989.7 µs | 2,388.1 µs | 14,775.8 µs | 9,832.0 µs |
+  | Paced 200k/s | 16,192.7 µs | 1,807.9 µs | 20,200.8 µs | 3,519.7 µs |
+
+  The 100k/s row's remaining maximum (9.8 ms) is an episode mid-row (commands due from 1,081 to 1,107 ms), in a row
+  whose load generator was itself late 2,945 times; at 200k/s, 16 more episodes, the worst of each 1.0 to 3.5 ms, are
+  spread through the second.
+- **What makes a row's start slow isn't separated yet.** Each row opens fresh connections after a 200 ms pause (in
+  which the gateway cancels the last row's orders), runs an untimed saturated warm-up of 8,000 commands (about 3
+  ms at the saturated rate above), then paces. Not the gateway's wakeup from `poll` (day 4: spinning gave the same p99). Left: the
+  scheduler running the threads that idled through the pause on efficiency cores or at a low clock until they have run
+  a while, and the new connections. An untimed paced lead-in would separate a cold start from the steady state; the
+  numbers above are what a client sees from its first command.
 
 ## Results (day 4)
 
@@ -576,7 +680,7 @@ core's.
 
 ## Tests
 
-296 tests (`make check`), each a separate CTest test. CI runs them on four jobs (GCC 14 and Clang 18 on Ubuntu, Apple
+316 tests (`make check`), each a separate CTest test. CI runs them on four jobs (GCC 14 and Clang 18 on Ubuntu, Apple
 Clang on macOS, each Debug and Release, and Clang under ASan and UBSan), runs the threaded ones under ThreadSanitizer
 on a fifth (`make tsan`: the ring's, the engine thread's and the gateway's), fuzzes on a sixth, and runs `make soak`
 with GCC 14 on a seventh: at `f833616`, `24 runs, 1040000000 commands, in 71 s`. The first three also run the
@@ -615,8 +719,10 @@ branches. At `a900bb9`, 741 of 751 and 469 of 482; the second review found that 
 | `check_test.cpp` | The reference model passes `Audit` and `check_book` over 160,000 random commands: four seeds of the default mix, and mixes with long queues at three prices (every check after every command), quantities up to 10^9 on a near-empty book, and 30% invalid orders; each check is shown to fail on events or a state that break its rule; a pinned hash of the reference model's events and book (I7) |
 | `review/*.cpp`, `review2/` | The two day-1 reviews' reproductions, kept as regression tests: 0-lot trades after a fill; a stream starting near a price bound; double spoils that broke one rule; an empty transcript `check` rejected |
 | `minimize_test.cpp` | The minimizer keeps exactly what a failure needs, in order, and is 1-minimal; 1,000 commands shrink in under 100 replays (56); random runs that catch two deliberately broken books shrink to 3 commands and to 1 |
+| `latency_histogram_test.cpp` | The measuring tools' histogram: bucket bounds worked out by hand (100, 1,000 and 1,000,000 ns, and the int64 maximum, whose bucket ends at 2^63), every bucket contiguous with the next and at most 1/32 of its lower bound wide, every value from 0 to 200,000 and 200,000 random ones at every scale inside its bucket; nearest-rank percentiles; the CSV file line for line, and names it can't hold |
+| `plot_latency` and `loadgen` tests (CTest) | Both tools' `--csv` files from brief runs give all four figures, each parsed back as XML; `--trace` writes a line for each timed command |
 | `scripts/gateway_smoke.sh` (CTest) | `orderbook_gateway` on a free port serves the load generator (2,000 commands, 4 connections), stops on SIGINT with exit 0 and counts the 4 sessions |
-| CLI tests (`tests/CMakeLists.txt`) | `replay` gives exactly the expected update lines and snapshots for a hand-worked stream, the same output on both books for a random one, and fails on the tool built around the price-bug book (at the command `diff` finds) and the short-depth book; `check` passes the scenarios on both books and reports a wrong one with its line and the actual events; a 2,000-command transcript passes its own check, and so does an empty one; each book passes the other's transcript of 5,000 commands; `audit` passes 20,000 commands on each book; `diff` agrees on 100,000; the tool built around two broken books reports a difference, exits 1, prints a scenario that passes with `--book reference` and fails on the engine, and compares states as often as `--every` says; options out of range and bad arguments are reported; each exit code exactly (0, 1, 2) |
+| CLI tests (`tests/CMakeLists.txt`) | `replay` gives exactly the expected update lines and snapshots for a hand-worked stream, the same output on both books for a random one, and fails on the tool built around the price-bug book (at the command `diff` finds) and the short-depth book; `check` passes the scenarios on both books and reports a wrong one with its line and the actual events; a 2,000-command transcript passes its own check, and so does an empty one; each book passes the other's transcript of 5,000 commands; `audit` passes 20,000 commands on each book; `diff` agrees on 100,000; the tool built around two broken books reports a difference, exits 1, prints a scenario that passes with `--book reference` and fails on the engine, and compares states as often as `--every` says; options out of range and bad arguments are reported; each exit code exactly (0, 1, 2); `version` prints the project's version |
 | Fuzz targets (`fuzz/`, in CTest) | Both on 2,000 seeded random inputs each; the text target on the scenario files whole and on each of their 465 lines, so its round-trip checks run. The book target runs both books in lockstep, comparing events and states after every command, with the Audit and `check_book` on the engine. CI's libFuzzer job runs each for 60 s instead: at `30677d4`, 1,213,736 text inputs and 192,251 book inputs (both books), no findings (at `a900bb9`, the reference model alone, 232,863 book inputs). Locally, the release build's standalone driver ran 500,000 random book inputs in 301 s at `b3af16c`, no findings |
 
 ## Review of day 4
@@ -785,6 +891,10 @@ that accepted trailing words (`7681692` and the commit after it).
 - **Answers in line order** (day 4): the gateway's own answers wait behind the session's commands in the engine,
   which costs a client that pipelines nothing and gives it one simple rule.
 - **Cancel on disconnect** (day 4): an order no client can cancel any more shouldn't rest.
+- **Latency as distributions, timed from when each command was due** (days 3 to 5). A mean hides the tail, and timing
+  from when a command was sent hides the stalls that delayed sending it (coordinated omission). Both tools keep every
+  sample for exact percentiles and write a log-linear histogram (`--csv`), and the figures are drawn from those files
+  by a script with no dependencies, so `make histograms` redraws them from any run.
 - **The order of the validation checks is part of the specification**, so two implementations agree on the reason
   for a rejection, not just on the rejection.
 - **A deliberately naive reference model** as the oracle, instead of trusting the engine's own unit tests: the
@@ -852,11 +962,13 @@ that accepted trailing words (`7681692` and the commit after it).
   use integers for that reason (DESIGN.md, "Testing").
 - Shrinking a difference keeps the stream up to it in memory and replays it, about n log n times when chunks fall
   away easily; a difference found late in a long `orderbook diff` run takes correspondingly long to shrink.
-- The benchmark numbers above were measured on battery with other apps open (day 2's during a video call), and day 4's
-  with the battery between 28% and 25%; they are to be measured again on power with nothing else running.
+- Every number here was measured on a laptop on battery with other apps open (day 2's during a video call, day 4's
+  with the battery between 28% and 25%, day 5's at 69% to 65%); the medians repeat from run to run, the tails
+  move by up to ten times. They are to be measured again on power with nothing else running.
 - The gateway (day 4) has no authentication, TLS, rate limits or self-trade prevention, and listens on loopback by
   default; its protocol is text, in ticks and lots. Paced one command a write, its latency tail from 100,000 commands a
-  second is in milliseconds, and what stalls isn't known. A session ended for a long line is closed with whatever the
+  second is in milliseconds, nearly all of it from the first 50 ms of a run (day 5); what makes a run's start slow
+  isn't separated yet. A session ended for a long line is closed with whatever the
   client sent after the line unread, so the client may see a reset rather than an end of file. Out of descriptors,
   `accept` fails each turn and the loop spins until one is free.
 - The depth feed uses standard containers, so it allocates as orders rest and levels appear, and costs about 50 ns a
