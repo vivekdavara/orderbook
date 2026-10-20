@@ -295,19 +295,24 @@ def main():
     os.makedirs(args.out_dir, exist_ok=True)
     out = lambda name: os.path.join(args.out_dir, name)  # noqa: E731
 
+    # orderbook_latency's books, by the orders resting after each warm-up: the middle one for the engine's thread,
+    # the largest for the books themselves, where the reference model's scan costs most.
+    sizes = sorted({size for section, _, size in latency if section == "engine thread"})
+    middle = sizes[len(sizes) // 2]
     percentile_figure(
-        pick(latency, "engine thread", 1000, ["one at a time", "paced 1M/s", "paced 5M/s", "saturated"],
+        pick(latency, "engine thread", middle, ["one at a time", "paced 1M/s", "paced 5M/s", "saturated"],
              args.latency_csv),
         out("engine_thread_percentiles.svg"),
         "The engine's thread, from sending a command to receiving its last event",
-        "orderbook_latency, 1,000 resting orders; paced commands timed from when they were due",
+        f"orderbook_latency, {middle:,} resting orders; paced commands timed from when they were due",
         args.note)
+    largest = max(size for section, _, size in latency if section == "one thread")
     percentile_figure(
-        pick(latency, "one thread", 10000, ["reference model", "day 2's engine (MapBook)", "engine"],
+        pick(latency, "one thread", largest, ["reference model", "day 2's engine (MapBook)", "engine"],
              args.latency_csv),
         out("one_thread_percentiles.svg"),
         "Each book's own time a command, one thread",
-        "orderbook_latency, 10,000 resting orders; one clock read either side (the clock steps in about 42 ns)",
+        f"orderbook_latency, {largest:,} resting orders; one clock read either side (it steps in about 42 ns)",
         args.note)
     gateway = []
     for name, connections in (("one at a time", 1), ("paced 50k/s", 4), ("paced 100k/s", 4), ("paced 200k/s", 4)):
@@ -315,7 +320,7 @@ def main():
     percentile_figure(
         gateway, out("gateway_percentiles.svg"),
         "The gateway over TCP, from when a command was due to its acknowledgement",
-        "orderbook_loadgen, about 1,000 resting orders; one at a time on 1 connection, paced over 4",
+        "orderbook_loadgen; one at a time on 1 connection, paced over 4",
         args.note)
     histogram_figure(
         gateway, out("gateway_histogram.svg"),

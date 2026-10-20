@@ -12,7 +12,7 @@
 // Usage: orderbook_latency [COMMANDS] [--csv FILE]   (1,000,000 timed commands by default)
 //
 // With --csv, each row's histogram goes to FILE too (bench/latency_histogram.hpp), for scripts/plot_latency.py; its
-// `size` column is the workload's target book size. Every figure is in nanoseconds, from std::chrono::steady_clock, whose step and cost are printed first: on Apple
+// `size` column is the number of orders resting after the row's warm-up. Every figure is in nanoseconds, from std::chrono::steady_clock, whose step and cost are printed first: on Apple
 // silicon it counts a 24 MHz timer, so a single command (tens of nanoseconds) shows as 0, 41 or 42 ns, and only the
 // tail percentiles span several steps.
 
@@ -41,8 +41,11 @@ using Clock = std::chrono::steady_clock;
 
 std::int64_t nanoseconds(Clock::duration d) { return std::chrono::duration_cast<std::chrono::nanoseconds>(d).count(); }
 
+// Room for any book these workloads build, so the engine never grows mid-run.
+constexpr BookCapacity kRoom{.orders = 32'768, .levels = 8'192};
+
 struct Workload {
-  std::size_t target = 0;
+  std::size_t resting = 0;  // orders resting after the warm-up, the same on every book: the CSV's `size`
   std::vector<Command> warm_up;
   std::vector<Command> timed;
 };
@@ -51,14 +54,17 @@ struct Workload {
 Workload workload(std::size_t target, std::size_t count) {
   RandomFlow flow(42, FlowOptions{.target_resting = target});
   Workload load;
-  load.target = target;
   for (std::size_t i = 0; i < target * 4 + 1'000; ++i) load.warm_up.push_back(flow.next());
   for (std::size_t i = 0; i < count; ++i) load.timed.push_back(flow.next());
+  Book book(kRoom);
+  std::vector<Event> events;
+  for (const Command& command : load.warm_up) {
+    events.clear();
+    book.apply(command, events);
+  }
+  load.resting = book.size();
   return load;
 }
-
-// Room for any book these workloads build, so the engine never grows mid-run.
-constexpr BookCapacity kRoom{.orders = 32'768, .levels = 8'192};
 
 void print_header(const char* first) {
   std::printf("%-26s %8s %7s %7s %7s %7s %8s %8s %8s\n", first, "resting", "p50", "p90", "p99", "p99.9", "p99.99", "max",
@@ -68,13 +74,13 @@ void print_header(const char* first) {
 // Where --csv writes each row's histogram (nowhere without it).
 latency::CsvWriter csv;
 
-// Sorts the samples, prints the row and writes its histogram.
-void print_row(const char* section, const std::string& name, std::size_t target, std::size_t resting,
+// Sorts the samples, prints the row (with the book's size now) and writes its histogram (under its workload's).
+void print_row(const char* section, const std::string& name, const Workload& load, std::size_t resting,
                std::vector<std::int64_t>& samples) {
   const latency::Summary s = latency::summarize(samples);
   std::printf("%-26s %8zu %7" PRId64 " %7" PRId64 " %7" PRId64 " %7" PRId64 " %8" PRId64 " %8" PRId64 " %8.1f\n",
               name.c_str(), resting, s.p50, s.p90, s.p99, s.p999, s.p9999, s.max, s.mean);
-  csv.write(section, name, target, samples);
+  csv.write(section, name, load.resting, samples);
 }
 
 void clock_report() {
@@ -116,7 +122,7 @@ void one_thread(const char* name, AnyBook book, const Workload& load) {
     const auto end = Clock::now();
     samples[i] = nanoseconds(end - start);
   }
-  print_row("one thread", name, load.target, resting, samples);
+  print_row("one thread", name, load, resting, samples);
 }
 
 // Sends every command, receiving while it waits, untimed.
@@ -156,7 +162,7 @@ void one_at_a_time(const Workload& load) {
     ++sequence;
   }
   engine.stop();
-  print_row("engine thread", "one at a time", load.target, engine.book().size(), samples);
+  print_row("engine thread", "one at a time", load, engine.book().size(), samples);
 }
 
 // rate 0: as fast as the ring takes them. Otherwise command i is due at start + i / rate, and is timed from then.
@@ -208,7 +214,7 @@ void paced(const Workload& load, double rate) {
   const latency::Summary s = latency::summarize(samples);
   std::printf("%-26s %8zu %7" PRId64 " %7" PRId64 " %7" PRId64 " %7" PRId64 " %8" PRId64 " %8" PRId64 " %8.1f\n",
               name, engine.book().size(), s.p50, s.p90, s.p99, s.p999, s.p9999, s.max, s.mean);
-  csv.write("engine thread", row, load.target, samples);
+  csv.write("engine thread", row, load.resting, samples);
   if (rate > 0) std::printf("%26s sent over 5 us late: %zu; slower than 5 us: %zu\n", "", late, slow);
 }
 
