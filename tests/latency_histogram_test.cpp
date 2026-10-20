@@ -94,6 +94,17 @@ TEST(LatencyHistogram, NearestRankPercentiles) {
   EXPECT_EQ(at_quantile(hundred, 0.999), 100);  // 99.9 samples: the rank rounds up
   EXPECT_EQ(at_quantile(hundred, 1.0), 100);
 
+  // Where q * n has a fraction under a half, rounding to the nearest rank would be one too low: p90 of 16 samples is
+  // the 15th (14.4 rounds up), p99 of 1,000 the 990th, p99.9 of 2,500 the 2,498th (2,497.5 up).
+  std::vector<std::int64_t> sixteen;
+  for (std::int64_t v = 1; v <= 16; ++v) sixteen.push_back(v);
+  EXPECT_EQ(at_quantile(sixteen, 0.90), 15);
+  EXPECT_EQ(at_quantile(sixteen, 0.50), 8);
+  std::vector<std::int64_t> thousands;
+  for (std::int64_t v = 1; v <= 2'500; ++v) thousands.push_back(v);
+  EXPECT_EQ(at_quantile(thousands, 0.999), 2'498);
+  EXPECT_EQ(at_quantile(thousands, 0.9), 2'250);
+
   std::vector<std::int64_t> one{7};
   EXPECT_EQ(at_quantile(one, 0.5), 7);
   EXPECT_THROW(at_quantile({}, 0.5), std::invalid_argument);

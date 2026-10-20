@@ -10,7 +10,9 @@
 // queued); paced, command i due at start + i/rate, round-robin over the connections, timed from when it was due, so a
 // sender that falls behind counts its wait (no coordinated omission); saturated (rate 0), sending whenever a
 // connection has fewer than 1,024 commands outstanding. Each row starts with fresh connections, which first build a
-// book of about 1,000 resting orders (untimed); when they close, the gateway cancels what they left.
+// book of about 500 resting orders (untimed: 512 to 519 on 4 connections, 550 on 1, counted by
+// tests/review6/loadgen_warm_up_test.cpp; RandomFlow's target counts orders it may cancel, filled ones too, so the
+// book is about half the target of 1,000); when they close, the gateway cancels what they left.
 //
 // Usage: orderbook_loadgen [--port N] [--host IPV4] [--connections C] [--commands N] [--rate R]... [--spin on|off]
 //                          [--csv FILE] [--trace FILE] [--lead-in N]
@@ -231,7 +233,7 @@ struct Options {
   std::size_t lead_in = 0;  // untimed commands sent the row's way before the timed ones
 };
 
-// A row's workload: connection c's commands come from RandomFlow seed 1000 + c; the warm-up builds about 1,000
+// A row's workload: connection c's commands come from RandomFlow seed 1000 + c; the warm-up builds about 500
 // resting orders in all, then the timed commands go round-robin.
 struct Workload {
   std::vector<Item> warm_up;

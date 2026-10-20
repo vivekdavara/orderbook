@@ -74,12 +74,13 @@ void print_header(const char* first) {
 // Where --csv writes each row's histogram (nowhere without it).
 latency::CsvWriter csv;
 
-// Sorts the samples, prints the row (with the book's size now) and writes its histogram (under its workload's).
-void print_row(const char* section, const std::string& name, const Workload& load, std::size_t resting,
-               std::vector<std::int64_t>& samples) {
+// Sorts the samples, prints the row and writes its histogram. A row's `resting` is the orders resting after its
+// warm-up, the book its timed commands start against, in the table and the CSV alike. (Until v1.0.0 the engine
+// thread's rows printed the book at the end of the row instead: 66, 562 and 4,796 for 70, 583 and 5,410.)
+void print_row(const char* section, const std::string& name, const Workload& load, std::vector<std::int64_t>& samples) {
   const latency::Summary s = latency::summarize(samples);
   std::printf("%-26s %8zu %7" PRId64 " %7" PRId64 " %7" PRId64 " %7" PRId64 " %8" PRId64 " %8" PRId64 " %8.1f\n",
-              name.c_str(), resting, s.p50, s.p90, s.p99, s.p999, s.p9999, s.max, s.mean);
+              name.c_str(), load.resting, s.p50, s.p90, s.p99, s.p999, s.p9999, s.max, s.mean);
   csv.write(section, name, load.resting, samples);
 }
 
@@ -113,7 +114,11 @@ void one_thread(const char* name, AnyBook book, const Workload& load) {
     events.clear();
     book.apply(command, events);
   }
-  const std::size_t resting = book.size();
+  if (book.size() != load.resting) {  // every book rests the same orders after the same commands
+    std::fprintf(stderr, "orderbook_latency: %s rests %zu orders after the warm-up, the engine %zu\n", name, book.size(),
+                 load.resting);
+    std::exit(1);
+  }
   std::vector<std::int64_t> samples(load.timed.size());
   for (std::size_t i = 0; i < load.timed.size(); ++i) {
     events.clear();
@@ -122,7 +127,7 @@ void one_thread(const char* name, AnyBook book, const Workload& load) {
     const auto end = Clock::now();
     samples[i] = nanoseconds(end - start);
   }
-  print_row("one thread", name, load, resting, samples);
+  print_row("one thread", name, load, samples);
 }
 
 // Sends every command, receiving while it waits, untimed.
@@ -162,7 +167,7 @@ void one_at_a_time(const Workload& load) {
     ++sequence;
   }
   engine.stop();
-  print_row("engine thread", "one at a time", load, engine.book().size(), samples);
+  print_row("engine thread", "one at a time", load, samples);
 }
 
 // rate 0: as fast as the ring takes them. Otherwise command i is due at start + i / rate, and is timed from then.
@@ -213,7 +218,7 @@ void paced(const Workload& load, double rate) {
   }
   const latency::Summary s = latency::summarize(samples);
   std::printf("%-26s %8zu %7" PRId64 " %7" PRId64 " %7" PRId64 " %7" PRId64 " %8" PRId64 " %8" PRId64 " %8.1f\n",
-              name, engine.book().size(), s.p50, s.p90, s.p99, s.p999, s.p9999, s.max, s.mean);
+              name, load.resting, s.p50, s.p90, s.p99, s.p999, s.p9999, s.max, s.mean);
   csv.write("engine thread", row, load.resting, samples);
   if (rate > 0) std::printf("%26s sent over 5 us late: %zu; slower than 5 us: %zu\n", "", late, slow);
 }

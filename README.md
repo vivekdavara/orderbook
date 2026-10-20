@@ -433,7 +433,8 @@ gateway and the load generator talk over loopback TCP on this one machine.
 
 **The gateway, from the clients' side**, `orderbook_loadgen` (`make loadgen`): each command timed from when it was due
 to its acknowledgement (`accepted`/`rejected`, or `cancelled ... requested` for a cancel), in microseconds; 200,000
-timed commands a row, each row on fresh connections after an untimed warm-up to about 1,000 resting orders. Through a
+timed commands a row, each row on fresh connections after an untimed warm-up to about 500 resting orders (this said
+about 1,000 until day 5's review counted them: 512 to 519 on 4 connections, 550 on 1). Through a
 gateway in the load generator's process (10:54, load average 10.5 falling to 9.3 after a GCC build):
 
 | Mode | Connections | p50 | p90 | p99 | p99.9 | p99.99 | max | Sent over 50 µs late |
@@ -548,7 +549,9 @@ consumer back off (32 pauses after each empty look, an experiment not kept) left
 runs ten times faster across threads than plain values of 32 or 64 bytes is still open.
 
 **Latency**, `make latency` (`build/release/bench/orderbook_latency 1000000`, 11:09:31 to 11:09:38): 1,000,000
-commands each, after the same warm-ups. The clock (`steady_clock`) steps in 41 to 42 ns and costs 13.5 ns a read, so
+commands each, after the same warm-ups. (The tables' Resting column is the book after the warm-up in the one-thread
+rows, and the book at the end of the row in the engine thread's: 66, 562 and 4,796 for the same warm-ups. Since
+v1.0.0 the tool prints the size after the warm-up in every row.) The clock (`steady_clock`) steps in 41 to 42 ns and costs 13.5 ns a read, so
 below about 125 ns the figures are counts of steps: "41" means the command finished within one step.
 
 One thread, each command timed alone, nanoseconds:

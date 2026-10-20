@@ -2,9 +2,9 @@
 // percentiles of the samples themselves, for the printed table, and a histogram of them, written with --csv FILE for
 // scripts/plot_latency.py.
 //
-// The histogram's buckets are log-linear, as in HdrHistogram: one a nanosecond below 64 ns, then 32 to each doubling
-// ([64, 66), [66, 68), ..., [126, 128), [128, 132), ...), so a bucket is at most 1/32 (3.1%) of its lower bound wide
-// at any scale, and the bounds are whole nanoseconds. 2^63 ns needs under 2,000 buckets.
+// The histogram's buckets are log-linear, as in HdrHistogram: one a nanosecond below 64 ns (exact values), then 32 to
+// each doubling ([64, 66), [66, 68), ..., [126, 128), [128, 132), ...), so from 32 ns up a bucket is at most 1/32
+// (3.1%) of its lower bound wide, and the bounds are whole nanoseconds. 2^63 ns needs under 2,000 buckets.
 #pragma once
 
 #include <algorithm>

@@ -20,6 +20,7 @@ add_executable(orderbook_tests
   review4/diff_soak_script_test.cpp
   review4/state_mismatch_report_test.cpp
   review5/gateway_review_test.cpp
+  review6/loadgen_warm_up_test.cpp
   scenario_test.cpp
   spsc_ring_test.cpp
   text_test.cpp
@@ -177,7 +178,8 @@ if(ORDERBOOK_BUILD_BENCHMARKS)
   add_test(NAME loadgen.trace_has_a_line_for_each_timed_command
     COMMAND sh -c "\"$1\" --commands 1000 --rate 100000 --trace \"$2\" >/dev/null &&
       test $(wc -l < \"$2\") -eq 1001 && head -1 \"$2\" | grep -qx 'row,index,connection,due_us,latency_us' &&
-      sed -n 1001p \"$2\" | grep -q '^paced 100k/s,999,3,'" sh
+      sed -n 1001p \"$2\" | grep -q '^paced 100k/s,999,3,' &&
+      awk -F, 'NR > 1 && $4 != sprintf(\"%.3f\", $2 * 10) { late++ } END { exit late > 0 }' \"$2\"" sh
             $<TARGET_FILE:orderbook_loadgen> ${CMAKE_CURRENT_BINARY_DIR}/loadgen_trace.csv)
 
   # --lead-in sends untimed commands before the timed ones: the gateway gets more commands, and the trace and the
