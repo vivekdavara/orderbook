@@ -6,13 +6,14 @@
 LATENCY_CSV is `orderbook_latency --csv`'s file, LOADGEN_CSV `orderbook_loadgen --csv`'s; each line is one histogram
 bucket of one row (bench/latency_histogram.hpp). It writes four figures:
 
-  engine_thread_percentiles.svg  the engine's thread from the sender's side, 1,000 resting orders
-  one_thread_percentiles.svg     each book's own time a command, 10,000 resting orders
+  engine_thread_percentiles.svg  the engine's thread from the sender's side, on the middle of the tool's book sizes
+  one_thread_percentiles.svg     each book's own time a command, on the largest
   gateway_percentiles.svg        the gateway over TCP, from when each command was due to its acknowledgement
-  gateway_histogram.svg          the same rows as shares of commands, to show where the tail's commands sit
+  gateway_histogram.svg          the same rows as shares of commands by latency, to show where the tail's commands sit
 
 A percentile curve is drawn from the buckets, each at its lower bound, so a point is at most 3.1% below the exact
-nearest-rank value the tool printed for it. The standard library only: no plotting package to install.
+nearest-rank value the tool printed for it (from 32 ns up; below 64 ns the buckets are exact). A row of any size, one
+sample included, is drawn. The standard library only: no plotting package to install.
 """
 
 import argparse
@@ -92,7 +93,8 @@ def nice_range(lo, hi):
         e = math.floor(math.log10(v))
         return min(s * 10.0 ** e for s in (1, 2, 5, 10) if s * 10.0 ** e >= v * (1 - 1e-9))
 
-    return below(lo), above(hi)
+    lo, hi = below(max(lo, 1)), above(max(hi, 1))
+    return (lo, hi) if hi > lo else (lo, above(lo * 1.01))  # never an empty range: one value still gets an axis
 
 
 class Svg:
@@ -181,14 +183,17 @@ def percentile_figure(series, path, title, subtitle, note):
                 continue
             points.append((max(before, start_rank - 1) / total, max(lower, 1)))
         curves.append((name, total, points))
-    x_end = max(math.log10(total) for _, total, _ in curves)  # the last sample of the largest row
     x_start = math.log10(2)
+    # The last sample of the largest row, and at least a decade past the median, so that rows of one or two samples
+    # still have an axis.
+    x_end = max(max(math.log10(total) for _, total, _ in curves), x_start + 1)
     values = [v for _, _, pts in curves for _, v in pts]
     y_lo, y_hi = nice_range(min(values), max(values))
     plot_w, plot_h = WIDTH - LEFT - RIGHT, HEIGHT - TOP - BOTTOM
 
     def px(p, total):
         x = min(math.log10(1 / (1 - p)) if p < 1 else x_end, math.log10(total))
+        x = max(x, x_start)  # a row of one sample is its median and its slowest: drawn at the median, not left of it
         return LEFT + (x - x_start) / (x_end - x_start) * plot_w
 
     def py(v):
@@ -231,25 +236,31 @@ def percentile_figure(series, path, title, subtitle, note):
 
 
 def histogram_figure(series, path, title, subtitle, note):
-    """Each row's share of commands in bins of an eighth of a doubling (4 of the CSV's buckets), on log axes: the
-    share is logarithmic too, so that a tail of a few commands a bin shows beside a mode of a fifth of them."""
+    """Each row's commands by latency, on log axes. The bins are 4 of the CSV's buckets (an eighth of a doubling's
+    span, so on the log axis from 0.093 to 0.170 of a doubling wide), and each bin's share is divided by its width on
+    that axis, in eighths of a doubling: a share per eighth of a doubling, which draws a distribution that is flat in
+    log(latency) flat. The share axis is logarithmic too, so that a tail of a few commands a bin shows beside a mode of
+    a fifth of them."""
     curves = []
     for name, buckets in series:
         total = sum(c for _, _, c in buckets)
         bins = defaultdict(int)
         for lower, upper, count in buckets:
-            if lower < 64:  # exact buckets: values below 64 ns, a bin each
-                bins[(lower, upper)] += count
+            if lower < 64:  # exact buckets: values below 64 ns, a bin each (0 drawn from 1 ns, on a log axis)
+                bins[(max(lower, 1), max(upper, 2))] += count
                 continue
             e = (lower.bit_length() - 1) - 5  # the doubling, as in bucket_of
             width = 1 << e
             first = (lower // (4 * width)) * (4 * width)
             bins[(first, first + 4 * width)] += count
-        curves.append((name, total, sorted((lo, hi, c / total) for (lo, hi), c in bins.items())))
+        density = sorted((lo, hi, c / total / (8 * math.log2(hi / lo))) for (lo, hi), c in bins.items())
+        curves.append((name, total, density))
     x_lo, x_hi = nice_range(min(b[0][0] for _, _, b in curves), max(b[-1][1] for _, _, b in curves))
-    # From one command of the largest row (rounded down to a power of ten) to the largest share.
-    y_lo = 10.0 ** math.floor(math.log10(1 / max(total for _, total, _ in curves)))
-    y_hi = 10.0 ** math.ceil(math.log10(max(s for _, _, b in curves for _, _, s in b)))
+    # From one command of the largest row in the widest bin, rounded down to a power of ten, to the largest density.
+    y_lo = 10.0 ** math.floor(math.log10(1 / max(total for _, total, _ in curves) / (8 * math.log2(9 / 8))))
+    y_hi = 10.0 ** math.ceil(math.log10(max(d for _, _, b in curves for _, _, d in b)))
+    if y_hi <= y_lo:
+        y_lo = y_hi / 10
     plot_w, plot_h = WIDTH - LEFT - RIGHT, HEIGHT - TOP - BOTTOM
 
     def px(v):
@@ -272,7 +283,7 @@ def histogram_figure(series, path, title, subtitle, note):
         svg.text(x, TOP + plot_h + 18, duration(v), "tick", "middle")
     svg.add(f'<line class="axis" x1="{LEFT}" y1="{TOP + plot_h}" x2="{LEFT + plot_w}" y2="{TOP + plot_h}"/>')
     svg.text(LEFT + plot_w / 2, TOP + plot_h + 40,
-             "latency (log scale), bins an eighth of a doubling wide; share of the row's commands (log scale)",
+             "latency (log scale); share of the row's commands per eighth of a doubling (log scale)",
              "label", "middle")
     for i, (name, _, bins) in enumerate(curves):
         points = [(px(bins[0][0]), py(0))]

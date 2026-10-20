@@ -207,6 +207,24 @@ if(ORDERBOOK_BUILD_BENCHMARKS)
   endif()
 endif()
 
+# The day-5 review's reproductions of scripts/plot_latency.py's bugs (tests/review6/plot_latency_review_test.py): each
+# case writes CSV files in the tools' format, runs the script on them and checks a figure. And which rows the figures
+# take (tests/plot_latency_test.py).
+find_package(Python3 COMPONENTS Interpreter)
+if(Python3_Interpreter_FOUND)
+  foreach(case a_brief_run_draws a_row_of_one_sample_is_drawn_inside_the_plot
+               a_flat_density_is_drawn_flat_in_the_histogram the_end_labels_fit_in_the_figure)
+    add_test(NAME review6.plot_latency.${case}
+      COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/review6/plot_latency_review_test.py
+              ${PROJECT_SOURCE_DIR}/scripts/plot_latency.py ${CMAKE_CURRENT_BINARY_DIR}/review6_plot ${case})
+    set_tests_properties(review6.plot_latency.${case} PROPERTIES TIMEOUT 120)
+  endforeach()
+  add_test(NAME plot_latency.each_figure_takes_the_book_size_it_names
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/plot_latency_test.py
+            ${PROJECT_SOURCE_DIR}/scripts/plot_latency.py ${CMAKE_CURRENT_SOURCE_DIR}/review6/plot_latency_review_test.py
+            ${CMAKE_CURRENT_BINARY_DIR}/plot_latency_sizes)
+endif()
+
 # The second day-1 review's reproductions of CLI bugs.
 include(${CMAKE_CURRENT_SOURCE_DIR}/review2/cli_tests.cmake)
 
